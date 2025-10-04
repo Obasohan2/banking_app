@@ -80,7 +80,55 @@ def main():
     print("Welcome to the Banking App")
     print("==========================")
 
+    while True:
+        print("\nSelect an option:\n")
+        print("1. Create Account")
+        print("2. Withdraw Funds")
+        print("3. Deposit Funds")
+        print("4. Display Balance")
+        print("5. Print Database")
+        print("6. Exit")
+
+        choice = input("Enter your choice: ")
+
+        if choice == "1":
+            name = input("Enter Account Name: ")
+            initial_balance = input("Enter initial balance (£): ")
+            if not is_money(initial_balance):
+                print("❌ Invalid balance amount.")
+                continue
+            create_account(name, float(initial_balance))
+
+        elif choice == "2":
+            account_number = input("Enter account number: ")
+            amount = input("Enter withdrawal amount (£): ")
+            if not is_money(amount):
+                print("❌ Invalid amount.")
+                continue
+            withdraw(account_number, float(amount))
+
+        elif choice == "3":
+            account_number = input("Enter account number: ")
+            amount = input("Enter deposit amount (£): ")
+            if not is_money(amount):
+                print("❌ Invalid amount.")
+                continue
+            deposit(account_number, float(amount))
+
+        elif choice == "4":
+            account_number = input("Enter account number: ")
+            display_balance(account_number)
+
+        elif choice == "5":
+            print_database()
+
+        elif choice == "6":
+            print("👋 Exiting the application. Goodbye!")
+            break
+
+        else:
+            print("❌ Invalid choice. Please try again.")
+
 
 if __name__ == "__main__":
     main()
-    
