@@ -1,6 +1,7 @@
 import gspread
 from google.oauth2.service_account import Credentials
 import random
+from prettytable import PrettyTable
 
 
 SCOPE = [
@@ -26,6 +27,17 @@ def print_database():
     if not accounts:
         print("No accounts found in the database.")
         return
+
+    # Create a PrettyTable instance
+    table = PrettyTable()
+    table.field_names = ["Name", "Account Number", "Balance"]
+
+    for account in accounts:
+        table.add_row([
+            account['Name'], account['Account Number'], account['Balance']
+        ])
+
+    print(table)
 
 
 def is_money(value):
@@ -62,4 +74,13 @@ def create_account(name, initial_balance):
     accounts_sheet.append_row([name, account_number, float(initial_balance)])
     print(f"✅ Account created successfully. Account Number: {account_number}")
     
+    
+def main():
+    print("==========================")
+    print("Welcome to the Banking App")
+    print("==========================")
+
+
+if __name__ == "__main__":
+    main()
     
