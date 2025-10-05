@@ -374,7 +374,6 @@ def display_balance(account_number):
         print(f"💥 Unexpected error while fetching balance: {e}")
 
         
-
 # ==============================================
 # 📊 DISPLAY FUNCTIONS
 # ==============================================
@@ -427,22 +426,61 @@ def view_transaction_history(account_number):
 
 
 def print_database():
-    """Display all accounts (admin only)."""
-    accounts = [normalize_headers(a) for a in accounts_sheet.get_all_records()]
-    if not accounts:
-        print("No accounts found.")
-        return
-    table = PrettyTable()
-    table.field_names = ["Name", "Account Number", "Balance"]
-    for a in accounts:
-        table.add_row(
-            [
-                a.get("name", "N/A"),
-                a.get("account_number", "N/A"),
-                f"£{float(a.get('balance', 0)):.2f}",
-            ]
-        )
-    print(table)
+    """
+    Display all accounts in the 'accounts' sheet (admin only).
+    Automatically detects headers like 'Balance (£)' or 'Balance()'.
+    """
+    print("📂 Fetching full account list...")
+
+    try:
+        sheet = CLIENT.open("banking_app").worksheet("accounts")
+        all_values = sheet.get_all_values()
+
+        if not all_values or len(all_values) < 2:
+            print("❌ No data found in the 'accounts' sheet.")
+            return
+
+        # Normalize headers: lowercase, remove symbols and spaces
+        headers = [
+            h.lower()
+            .replace("£", "")
+            .replace("(", "")
+            .replace(")", "")
+            .replace("_", " ")
+            .strip()
+            for h in all_values[0]
+        ]
+
+        # Find header positions dynamically
+        try:
+            name_index = next((i for i, h in enumerate(headers) if "name" in h), 0)
+            acc_index = next((i for i, h in enumerate(headers) if "account" in h), 1)
+            bal_index = next((i for i, h in enumerate(headers) if h.startswith("balance")), None)
+
+            if bal_index is None:
+                raise ValueError("Could not find a balance column.")
+        except ValueError as e:
+            print(f"❌ Invalid sheet structure: {e}")
+            print(f"Detected headers: {headers}")
+            return
+
+        # Build the table
+        table = PrettyTable()
+        table.field_names = ["Name", "Account Number", "Balance (£)"]
+
+        for row in all_values[1:]:
+            name = row[name_index] if len(row) > name_index else "N/A"
+            account_number = row[acc_index] if len(row) > acc_index else "N/A"
+            try:
+                balance = float(str(row[bal_index]).replace("£", "").replace(",", "").strip() or 0)
+            except (ValueError, IndexError):
+                balance = 0.0
+            table.add_row([name, account_number, f"£{balance:.2f}"])
+
+        print(table)
+
+    except Exception as e:
+        print(f"💥 Unexpected error while printing database: {e}")
 
 
 def clear_screen():
