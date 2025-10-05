@@ -270,37 +270,57 @@ def deposit(account_number, amount):
 
 def withdraw(account_number, amount):
     """
-    Withdraw funds and immediately display the new live balance.
+    Withdraw funds with dynamic header detection and live balance sync.
     """
     print("💸 Processing withdrawal...")
 
     sheet = CLIENT.open("banking_app").worksheet("accounts")
-    row, acc = find_account(account_number)
-    if not acc:
-        print(f"❌ Account {account_number} not found.")
-        return
-
-    balance = acc["balance"]
-    if amount > balance:
-        print(f"❌ Insufficient funds. Current balance: £{balance:.2f}")
-        return
-
-    new_balance = balance - amount
-    sheet.update_cell(row, 3, new_balance)
-    log_transaction(account_number, "Withdrawal", amount, new_balance)
-
-    # ✅ Fetch updated balance directly from Google Sheets
     all_values = sheet.get_all_values()
-    headers = [h.lower().strip() for h in all_values[0]]
-    bal_index = headers.index("balance")
 
+    # Normalize headers: remove £, parentheses, underscores, and spaces
+    headers = [
+        h.lower()
+        .replace("£", "")
+        .replace("(", "")
+        .replace(")", "")
+        .replace("_", " ")
+        .strip()
+        for h in all_values[0]
+    ]
+
+    # Locate headers dynamically
     try:
-        fresh_balance = float(str(all_values[row - 1][bal_index]).replace("£", "").replace(",", "").strip() or 0)
-    except ValueError:
-        fresh_balance = new_balance
+        acc_index = headers.index("account number")
+        bal_index = next((i for i, h in enumerate(headers) if h.startswith("balance")), None)
+        if bal_index is None:
+            raise ValueError("Could not find a balance column.")
+    except ValueError as e:
+        print(f"❌ Invalid sheet structure: {e}")
+        print(f"Detected headers: {headers}")
+        return
 
-    print(f"✅ Withdrawal successful! New balance for {account_number}: £{fresh_balance:.2f}")
-    
+    # Find matching account
+    for i, row in enumerate(all_values[1:], start=2):
+        if str(row[acc_index]).replace(",", "").strip() == str(account_number).strip():
+            try:
+                balance = float(str(row[bal_index]).replace("£", "").replace(",", "").strip() or 0)
+            except ValueError:
+                balance = 0.0
+
+            if amount > balance:
+                print(f"❌ Insufficient funds. Current balance: £{balance:.2f}")
+                return
+
+            new_balance = balance - amount
+            sheet.update_cell(i, bal_index + 1, new_balance)
+            log_transaction(account_number, "Withdrawal", amount, new_balance)
+
+            print(f"✅ Withdrawal successful! £{amount:.2f} withdrawn.")
+            print(f"💰 New balance for {account_number}: £{new_balance:.2f}")
+            return
+
+    print(f"❌ Account {account_number} not found.")
+
 
 def display_balance(account_number):
     """
