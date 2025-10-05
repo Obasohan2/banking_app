@@ -27,26 +27,22 @@ def get_or_create_worksheet(title, headers):
     try:
         sheet = SHEET.worksheet(title)
     except gspread.exceptions.WorksheetNotFound:
-        sheet = SHEET.add_worksheet(
-            title=title, rows="1000", cols=str(len(headers))
-            )
+        sheet = SHEET.add_worksheet(title=title, rows="1000", cols=str(len(headers)))
         sheet.append_row(headers)
     return sheet
 
 
 accounts_sheet = get_or_create_worksheet(
     "accounts", ["Name", "Account Number", "Balance"]
-    )
-transactions_sheet = get_or_create_worksheet(
-    "transactions", [
-        "Account Number", "Type", "Amount", "Balance After", "Date & Time"
-        ]
 )
-
+transactions_sheet = get_or_create_worksheet(
+    "transactions", ["Account Number", "Type", "Amount", "Balance After", "Date & Time"]
+)
 
 # ==============================================
 # 🧹 UTILITIES
 # ==============================================
+
 
 def normalize_headers(record):
     """Convert dictionary keys to lowercase with underscores."""
@@ -102,21 +98,51 @@ def safe_float(value):
 # 💼 ACCOUNT OPERATIONS
 # ==============================================
 
+
 # def find_account(account_number):
-#     """Find account by number."""
-#     for i, raw in enumerate(accounts_sheet.get_all_records(), start=2):
+#     """Find account by number and ensure numeric balance."""
+#     sheet = SHEET.worksheet("accounts")
+#     sheet.reload()  # ✅ Force fresh data from Google Sheets
+
+#     for i, raw in enumerate(sheet.get_all_records(), start=2):
 #         acc = normalize_headers(raw)
 #         if str(acc.get("account_number")) == str(account_number):
+#             try:
+#                 acc["balance"] = float(
+#                     str(acc.get("balance", 0)).replace("£", "").replace(",", "")
+#                 )
+#             except ValueError:
+#                 acc["balance"] = 0.0
+#             return i, acc
+#     return None, None
+
+# def find_account(account_number):
+#     """Find account by number and ensure numeric balance."""
+#     sheet = SHEET.worksheet("accounts")  # gspread auto-refreshes as needed
+#     for i, raw in enumerate(sheet.get_all_records(), start=2):
+#         acc = normalize_headers(raw)
+#         if str(acc.get("account_number")) == str(account_number):
+#             try:
+#                 acc["balance"] = float(
+#                     str(acc.get("balance", 0)).replace("£", "").replace(",", "")
+#                 )
+#             except ValueError:
+#                 acc["balance"] = 0.0
 #             return i, acc
 #     return None, None
 
 def find_account(account_number):
-    """Find account by number safely."""
-    for i, raw in enumerate(accounts_sheet.get_all_records(), start=2):
+    """Find account by number and ensure numeric balance."""
+    # ✅ Always get a fresh reference to the worksheet
+    sheet = CLIENT.open("banking_app").worksheet("accounts")
+
+    for i, raw in enumerate(sheet.get_all_records(), start=2):
         acc = normalize_headers(raw)
         if str(acc.get("account_number")) == str(account_number):
             try:
-                acc["balance"] = float(str(acc.get("balance", 0)).replace("£", "").replace(",", ""))
+                acc["balance"] = float(
+                    str(acc.get("balance", 0)).replace("£", "").replace(",", "")
+                )
             except ValueError:
                 acc["balance"] = 0.0
             return i, acc
@@ -128,45 +154,112 @@ def generate_account_number():
     while True:
         num = random.randint(1000000000, 9999999999)
         _, acc = find_account(num)
-        if not acc:
+        if not acc:  # Ensure the account number is unique
             return num
 
 
+# def create_account(name, initial_balance):
+#     """Create new account."""
+#     print("🆕 Creating account...")
+#     acc_num = generate_account_number()
+#     accounts_sheet.append_row([name, acc_num, initial_balance])
+#     log_transaction(acc_num, "Account Created", initial_balance, initial_balance)
+#     print(f"✅ Account created successfully!\n   Account Number: {acc_num}")
+
 def create_account(name, initial_balance):
-    """Create new account."""
+    """Create a new account with proper balance formatting and confirmation."""
     print("🆕 Creating account...")
+
+    # Always get the latest sheet
+    sheet = CLIENT.open("banking_app").worksheet("accounts")
+
+    # Generate a unique 10-digit account number
     acc_num = generate_account_number()
-    accounts_sheet.append_row([name, acc_num, initial_balance])
-    log_transaction(acc_num, "Account Created", initial_balance, initial_balance)
-    print(f"✅ Account created successfully!\n   Account Number: {acc_num}")
+
+    # Ensure balance is stored as a float, not string
+    balance = round(float(initial_balance), 2)
+
+    # Add new row to the sheet
+    sheet.append_row([name, acc_num, balance])
+
+    # Log the creation
+    log_transaction(acc_num, "Account Created", balance, balance)
+
+    # Confirm creation
+    print(f"✅ Account created successfully!")
+    print(f"   👤 Name: {name}")
+    print(f"   💳 Account Number: {acc_num}")
+    print(f"   💰 Initial Balance: £{balance:.2f}")
+
+    # Optional live verification
+    all_accounts = [normalize_headers(a) for a in sheet.get_all_records()]
+    created = next((a for a in all_accounts if str(a.get("account_number")) == str(acc_num)), None)
+    if created:
+        print("🔎 Verified in Google Sheets ✅")
+    else:
+        print("⚠️ Could not verify account creation in Google Sheets.")
+
+# def deposit(account_number, amount):
+#     """Deposit funds."""
+#     print("💰 Processing deposit...")
+#     row, acc = find_account(account_number)
+#     if not acc:
+#         print(f"❌ Account {account_number} not found.")
+#         return
+#     new_balance = float(acc.get("balance", 0)) + amount
+#     accounts_sheet.update_cell(row, 3, new_balance)
+#     log_transaction(account_number, "Deposit", amount, new_balance)
+#     print(f"✅ Deposited £{amount:.2f}. New balance: £{new_balance:.2f}")
 
 
 def deposit(account_number, amount):
     """Deposit funds."""
     print("💰 Processing deposit...")
+    sheet = CLIENT.open("banking_app").worksheet("accounts")
     row, acc = find_account(account_number)
     if not acc:
         print(f"❌ Account {account_number} not found.")
         return
+
     new_balance = float(acc.get("balance", 0)) + amount
-    accounts_sheet.update_cell(row, 3, new_balance)
+    sheet.update_cell(row, 3, new_balance)
     log_transaction(account_number, "Deposit", amount, new_balance)
     print(f"✅ Deposited £{amount:.2f}. New balance: £{new_balance:.2f}")
+
+
+# def withdraw(account_number, amount):
+#     """Withdraw funds."""
+#     print("💸 Processing withdrawal...")
+#     row, acc = find_account(account_number)
+#     if not acc:
+#         print(f"❌ Account {account_number} not found.")
+#         return
+#     balance = float(acc.get("balance", 0))
+#     if amount > balance:
+#         print(f"❌ Insufficient funds. Current balance: £{balance:.2f}")
+#         return
+#     new_balance = balance - amount
+#     accounts_sheet.update_cell(row, 3, new_balance)
+#     log_transaction(account_number, "Withdrawal", amount, new_balance)
+#     print(f"✅ Withdrawal successful. New balance: £{new_balance:.2f}")
 
 
 def withdraw(account_number, amount):
     """Withdraw funds."""
     print("💸 Processing withdrawal...")
+    sheet = CLIENT.open("banking_app").worksheet("accounts")
     row, acc = find_account(account_number)
     if not acc:
         print(f"❌ Account {account_number} not found.")
         return
+
     balance = float(acc.get("balance", 0))
     if amount > balance:
         print(f"❌ Insufficient funds. Current balance: £{balance:.2f}")
         return
+
     new_balance = balance - amount
-    accounts_sheet.update_cell(row, 3, new_balance)
+    sheet.update_cell(row, 3, new_balance)
     log_transaction(account_number, "Withdrawal", amount, new_balance)
     print(f"✅ Withdrawal successful. New balance: £{new_balance:.2f}")
 
@@ -174,6 +267,7 @@ def withdraw(account_number, amount):
 # ==============================================
 # 📊 DISPLAY FUNCTIONS
 # ==============================================
+
 
 def display_balance(account_number):
     """Show account balance."""
@@ -188,7 +282,9 @@ def view_transaction_history(account_number):
     """Display last 10 transactions for an account."""
     print(f"\n📋 Transaction History — {account_number}")
     transactions = [normalize_headers(t) for t in transactions_sheet.get_all_records()]
-    account_txs = [t for t in transactions if str(t.get("account_number")) == str(account_number)]
+    account_txs = [
+        t for t in transactions if str(t.get("account_number")) == str(account_number)
+    ]
 
     if not account_txs:
         print("No transactions found for this account.")
@@ -208,12 +304,14 @@ def view_transaction_history(account_number):
     table.field_names = ["Date & Time", "Type", "Amount", "Balance After"]
 
     for t in account_txs[-10:]:
-        table.add_row([
-            t.get("date_&_time"),
-            t.get("type", "Unknown"),
-            f"£{float(t.get('amount', 0)):.2f}",
-            f"£{float(t.get('balance_after', 0)):.2f}"
-        ])
+        table.add_row(
+            [
+                t.get("date_&_time"),
+                t.get("type", "Unknown"),
+                f"£{float(t.get('amount', 0)):.2f}",
+                f"£{float(t.get('balance_after', 0)):.2f}",
+            ]
+        )
 
     print(table)
 
@@ -227,13 +325,15 @@ def print_database():
     table = PrettyTable()
     table.field_names = ["Name", "Account Number", "Balance"]
     for a in accounts:
-        table.add_row([a.get("name", "N/A"), a.get("account_number", "N/A"), f"£{float(a.get('balance', 0)):.2f}"])
+        table.add_row(
+            [
+                a.get("name", "N/A"),
+                a.get("account_number", "N/A"),
+                f"£{float(a.get('balance', 0)):.2f}",
+            ]
+        )
     print(table)
 
-
-# ==============================================
-# 🧠 MENU
-# ==============================================
 
 def clear_screen():
     os.system("cls" if os.name == "nt" else "clear")
