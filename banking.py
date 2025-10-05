@@ -200,34 +200,6 @@ def create_account(name, initial_balance):
         print("⚠️ Could not verify account creation in Google Sheets.")
 
 
-# def deposit(account_number, amount):
-#     """
-#     Deposit funds and immediately display the new live balance.
-#     """
-#     print("💰 Processing deposit...")
-
-#     sheet = CLIENT.open("banking_app").worksheet("accounts")
-#     row, acc = find_account(account_number)
-#     if not acc:
-#         print(f"❌ Account {account_number} not found.")
-#         return
-
-#     new_balance = acc["balance"] + amount
-#     sheet.update_cell(row, 3, new_balance)
-#     log_transaction(account_number, "Deposit", amount, new_balance)
-
-#     # ✅ Fetch updated balance directly from Google Sheets
-#     all_values = sheet.get_all_values()
-#     headers = [h.lower().strip() for h in all_values[0]]
-#     bal_index = headers.index("balance")
-
-#     try:
-#         fresh_balance = float(str(all_values[row - 1][bal_index]).replace("£", "").replace(",", "").strip() or 0)
-#     except ValueError:
-#         fresh_balance = new_balance
-
-#     print(f"✅ Deposit successful! New balance for {account_number}: £{fresh_balance:.2f}")
-
 def deposit(account_number, amount):
     """
     Deposit funds with robust header detection and immediate confirmation.
@@ -379,50 +351,87 @@ def display_balance(account_number):
 # ==============================================
 
 def view_transaction_history(account_number):
-    """Display the last 10 transactions for an account."""
+    """
+    Display the last 10 transactions for a specific account.
+    Automatically detects headers like 'Amount (£)' or 'Balance After (£)'.
+    """
     print(f"\n📋 Transaction History — {account_number}")
 
-    # Always get the latest transaction sheet
-    sheet = CLIENT.open("banking_app").worksheet("transactions")
-    transactions = [normalize_headers(t) for t in sheet.get_all_records()]
+    try:
+        sheet = CLIENT.open("banking_app").worksheet("transactions")
+        all_values = sheet.get_all_values()
 
-    # Filter for this account
-    account_txs = [t for t in transactions if str(t.get("account_number")) == str(account_number)]
+        if not all_values or len(all_values) < 2:
+            print("❌ No transactions found.")
+            return
 
-    if not account_txs:
-        print("No transactions found for this account.")
-        return
+        # Normalize headers: lowercase, remove £, punctuation, and spaces
+        headers = [
+            h.lower()
+            .replace("£", "")
+            .replace("(", "")
+            .replace(")", "")
+            .replace("_", " ")
+            .replace("&", "and")
+            .strip()
+            for h in all_values[0]
+        ]
 
-    # Sort by date (oldest to newest)
-    for t in account_txs:
-        if not t.get("date_&_time"):
-            t["date_&_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Identify columns dynamically
+        def find_col(possible_names):
+            for name in possible_names:
+                for i, h in enumerate(headers):
+                    if name in h:
+                        return i
+            return None
 
-    account_txs.sort(
-        key=lambda x: datetime.strptime(
-            x.get("date_&_time", "1970-01-01 00:00:00"), "%Y-%m-%d %H:%M:%S"
-        )
-    )
+        acc_index = find_col(["account number", "acct number"])
+        type_index = find_col(["type", "transaction type"])
+        amount_index = find_col(["amount"])
+        balance_index = find_col(["balance after", "balance"])
+        date_index = find_col(["date", "time", "date and time"])
 
-    # Create formatted table
-    table = PrettyTable()
-    table.field_names = ["Date & Time", "Transaction Type", "Amount (£)", "Balance After (£)"]
+        if acc_index is None or amount_index is None or date_index is None:
+            print(f"❌ Invalid sheet structure. Detected headers: {headers}")
+            return
 
-    for t in account_txs[-10:]:  # show last 10
-        try:
-            amount = float(t.get("amount", 0))
-            balance_after = float(t.get("balance_after", 0))
-        except ValueError:
-            amount = balance_after = 0.0
+        # Filter transactions for this account
+        filtered = [
+            row for row in all_values[1:]
+            if len(row) > acc_index and str(row[acc_index]).strip() == str(account_number)
+        ]
 
-        table.add_row([
-            t.get("date_&_time"),
-            t.get("type", "Unknown"),
-            f"£{amount:.2f}",
-            f"£{balance_after:.2f}"
-        ])
+        if not filtered:
+            print("No transactions found for this account.")
+            return
 
-    print(table)
+        # Build and print table
+        table = PrettyTable()
+        table.field_names = ["Date & Time", "Type", "Amount (£)", "Balance After (£)"]
+
+        for row in filtered[-10:]:  # show last 10
+            date_time = row[date_index] if len(row) > date_index else "N/A"
+            t_type = row[type_index] if type_index is not None and len(row) > type_index else "Unknown"
+            amount = row[amount_index] if len(row) > amount_index else "0"
+            balance_after = row[balance_index] if balance_index is not None and len(row) > balance_index else "0"
+
+            try:
+                amount = float(str(amount).replace("£", "").replace(",", "").strip() or 0)
+                balance_after = float(str(balance_after).replace("£", "").replace(",", "").strip() or 0)
+            except ValueError:
+                amount, balance_after = 0.0, 0.0
+
+            table.add_row([
+                date_time,
+                t_type,
+                f"£{amount:.2f}",
+                f"£{balance_after:.2f}",
+            ])
+
+        print(table)
+
+    except Exception as e:
+        print(f"💥 Unexpected error while viewing transaction history: {e}")
 
 
 def print_database():
