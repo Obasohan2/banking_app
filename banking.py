@@ -98,54 +98,62 @@ def safe_float(value):
 # 💼 ACCOUNT OPERATIONS
 # ==============================================
 
-
-# def find_account(account_number):
-#     """Find account by number and ensure numeric balance."""
-#     sheet = SHEET.worksheet("accounts")
-#     sheet.reload()  # ✅ Force fresh data from Google Sheets
-
-#     for i, raw in enumerate(sheet.get_all_records(), start=2):
-#         acc = normalize_headers(raw)
-#         if str(acc.get("account_number")) == str(account_number):
-#             try:
-#                 acc["balance"] = float(
-#                     str(acc.get("balance", 0)).replace("£", "").replace(",", "")
-#                 )
-#             except ValueError:
-#                 acc["balance"] = 0.0
-#             return i, acc
-#     return None, None
-
-# def find_account(account_number):
-#     """Find account by number and ensure numeric balance."""
-#     sheet = SHEET.worksheet("accounts")  # gspread auto-refreshes as needed
-#     for i, raw in enumerate(sheet.get_all_records(), start=2):
-#         acc = normalize_headers(raw)
-#         if str(acc.get("account_number")) == str(account_number):
-#             try:
-#                 acc["balance"] = float(
-#                     str(acc.get("balance", 0)).replace("£", "").replace(",", "")
-#                 )
-#             except ValueError:
-#                 acc["balance"] = 0.0
-#             return i, acc
-#     return None, None
-
 def find_account(account_number):
-    """Find account by number and ensure numeric balance."""
-    # ✅ Always get a fresh reference to the worksheet
+    """
+    Find an account by number and return its row and details.
+    Works even if the Balance header has symbols like (£) or ().
+    """
     sheet = CLIENT.open("banking_app").worksheet("accounts")
+    all_values = sheet.get_all_values()
 
-    for i, raw in enumerate(sheet.get_all_records(), start=2):
-        acc = normalize_headers(raw)
-        if str(acc.get("account_number")) == str(account_number):
+    if not all_values or len(all_values) < 2:
+        print("❌ No data found in the 'accounts' sheet.")
+        return None, None
+
+    # Normalize headers: lowercase, strip currency symbols and punctuation
+    def normalize_header(h):
+        return (
+            h.lower()
+            .replace("£", "")
+            .replace("(", "")
+            .replace(")", "")
+            .replace("_", " ")
+            .strip()
+        )
+
+    headers = [normalize_header(h) for h in all_values[0]]
+
+    # Locate headers
+    try:
+        acc_index = headers.index("account number")
+        # Accept "balance", "balance £", "balance ()", etc.
+        bal_index = next(
+            (i for i, h in enumerate(headers) if h.startswith("balance")), None
+        )
+        if bal_index is None:
+            raise ValueError
+    except ValueError:
+        print("❌ Invalid sheet structure. Could not find 'Account Number' or 'Balance' columns.")
+        print(f"Detected headers: {headers}")
+        return None, None
+
+    # Find the account
+    for i, row in enumerate(all_values[1:], start=2):
+        if str(row[acc_index]).replace(",", "").strip() == str(account_number).strip():
+            name = row[0]
             try:
-                acc["balance"] = float(
-                    str(acc.get("balance", 0)).replace("£", "").replace(",", "")
+                balance = float(
+                    str(row[bal_index]).replace("£", "").replace(",", "").strip() or 0
                 )
             except ValueError:
-                acc["balance"] = 0.0
-            return i, acc
+                balance = 0.0
+            return i, {
+                "name": name,
+                "account_number": account_number,
+                "balance": balance,
+            }
+
+    print(f"❌ Account {account_number} not found.")
     return None, None
 
 
@@ -157,14 +165,6 @@ def generate_account_number():
         if not acc:  # Ensure the account number is unique
             return num
 
-
-# def create_account(name, initial_balance):
-#     """Create new account."""
-#     print("🆕 Creating account...")
-#     acc_num = generate_account_number()
-#     accounts_sheet.append_row([name, acc_num, initial_balance])
-#     log_transaction(acc_num, "Account Created", initial_balance, initial_balance)
-#     print(f"✅ Account created successfully!\n   Account Number: {acc_num}")
 
 def create_account(name, initial_balance):
     """Create a new account with proper balance formatting and confirmation."""
@@ -199,61 +199,88 @@ def create_account(name, initial_balance):
     else:
         print("⚠️ Could not verify account creation in Google Sheets.")
 
+
 # def deposit(account_number, amount):
-#     """Deposit funds."""
+#     """
+#     Deposit funds and immediately display the new live balance.
+#     """
 #     print("💰 Processing deposit...")
+
+#     sheet = CLIENT.open("banking_app").worksheet("accounts")
 #     row, acc = find_account(account_number)
 #     if not acc:
 #         print(f"❌ Account {account_number} not found.")
 #         return
-#     new_balance = float(acc.get("balance", 0)) + amount
-#     accounts_sheet.update_cell(row, 3, new_balance)
-#     log_transaction(account_number, "Deposit", amount, new_balance)
-#     print(f"✅ Deposited £{amount:.2f}. New balance: £{new_balance:.2f}")
 
+#     new_balance = acc["balance"] + amount
+#     sheet.update_cell(row, 3, new_balance)
+#     log_transaction(account_number, "Deposit", amount, new_balance)
+
+#     # ✅ Fetch updated balance directly from Google Sheets
+#     all_values = sheet.get_all_values()
+#     headers = [h.lower().strip() for h in all_values[0]]
+#     bal_index = headers.index("balance")
+
+#     try:
+#         fresh_balance = float(str(all_values[row - 1][bal_index]).replace("£", "").replace(",", "").strip() or 0)
+#     except ValueError:
+#         fresh_balance = new_balance
+
+#     print(f"✅ Deposit successful! New balance for {account_number}: £{fresh_balance:.2f}")
 
 def deposit(account_number, amount):
-    """Deposit funds."""
+    """
+    Deposit funds with robust header detection and immediate confirmation.
+    """
     print("💰 Processing deposit...")
+
+    # Get live data
     sheet = CLIENT.open("banking_app").worksheet("accounts")
-    row, acc = find_account(account_number)
-    if not acc:
-        print(f"❌ Account {account_number} not found.")
+    all_values = sheet.get_all_values()
+    headers = [h.lower().replace("£", "").replace("(", "").replace(")", "").strip() for h in all_values[0]]
+
+    # Dynamically locate columns
+    try:
+        acc_index = headers.index("account number")
+        bal_index = next((i for i, h in enumerate(headers) if h.startswith("balance")), None)
+        if bal_index is None:
+            raise ValueError("Could not find a balance column.")
+    except ValueError as e:
+        print(f"❌ Invalid sheet structure: {e}")
+        print(f"Detected headers: {headers}")
         return
 
-    new_balance = float(acc.get("balance", 0)) + amount
-    sheet.update_cell(row, 3, new_balance)
-    log_transaction(account_number, "Deposit", amount, new_balance)
-    print(f"✅ Deposited £{amount:.2f}. New balance: £{new_balance:.2f}")
+    # Find the account row
+    for i, row in enumerate(all_values[1:], start=2):
+        if str(row[acc_index]).replace(",", "").strip() == str(account_number).strip():
+            try:
+                balance = float(str(row[bal_index]).replace("£", "").replace(",", "").strip() or 0)
+            except ValueError:
+                balance = 0.0
 
+            new_balance = balance + amount
+            sheet.update_cell(i, bal_index + 1, new_balance)
+            log_transaction(account_number, "Deposit", amount, new_balance)
 
-# def withdraw(account_number, amount):
-#     """Withdraw funds."""
-#     print("💸 Processing withdrawal...")
-#     row, acc = find_account(account_number)
-#     if not acc:
-#         print(f"❌ Account {account_number} not found.")
-#         return
-#     balance = float(acc.get("balance", 0))
-#     if amount > balance:
-#         print(f"❌ Insufficient funds. Current balance: £{balance:.2f}")
-#         return
-#     new_balance = balance - amount
-#     accounts_sheet.update_cell(row, 3, new_balance)
-#     log_transaction(account_number, "Withdrawal", amount, new_balance)
-#     print(f"✅ Withdrawal successful. New balance: £{new_balance:.2f}")
+            print(f"✅ Deposited £{amount:.2f}. New balance: £{new_balance:.2f}")
+            return
+
+    print(f"❌ Account {account_number} not found.")
 
 
 def withdraw(account_number, amount):
-    """Withdraw funds."""
+    """
+    Withdraw funds and immediately display the new live balance.
+    """
     print("💸 Processing withdrawal...")
+
     sheet = CLIENT.open("banking_app").worksheet("accounts")
     row, acc = find_account(account_number)
     if not acc:
         print(f"❌ Account {account_number} not found.")
         return
 
-    balance = float(acc.get("balance", 0))
+    balance = acc["balance"]
     if amount > balance:
         print(f"❌ Insufficient funds. Current balance: £{balance:.2f}")
         return
@@ -261,35 +288,93 @@ def withdraw(account_number, amount):
     new_balance = balance - amount
     sheet.update_cell(row, 3, new_balance)
     log_transaction(account_number, "Withdrawal", amount, new_balance)
-    print(f"✅ Withdrawal successful. New balance: £{new_balance:.2f}")
 
+    # ✅ Fetch updated balance directly from Google Sheets
+    all_values = sheet.get_all_values()
+    headers = [h.lower().strip() for h in all_values[0]]
+    bal_index = headers.index("balance")
+
+    try:
+        fresh_balance = float(str(all_values[row - 1][bal_index]).replace("£", "").replace(",", "").strip() or 0)
+    except ValueError:
+        fresh_balance = new_balance
+
+    print(f"✅ Withdrawal successful! New balance for {account_number}: £{fresh_balance:.2f}")
+    
+
+def display_balance(account_number):
+    """
+    Display the live balance for a specific account (handles header variations).
+    """
+    print("⏳ Fetching balance...")
+
+    try:
+        sheet = CLIENT.open("banking_app").worksheet("accounts")
+        all_values = sheet.get_all_values()
+
+        if not all_values or len(all_values) < 2:
+            print("❌ No data found in the 'accounts' sheet.")
+            return
+
+        # Normalize headers: ignore £, parentheses, underscores, and case
+        headers = [
+            h.lower()
+            .replace("£", "")
+            .replace("(", "")
+            .replace(")", "")
+            .replace("_", " ")
+            .strip()
+            for h in all_values[0]
+        ]
+
+        # Dynamically locate relevant columns
+        try:
+            acc_index = headers.index("account number")
+            bal_index = next((i for i, h in enumerate(headers) if h.startswith("balance")), None)
+            if bal_index is None:
+                raise ValueError("Balance column not found.")
+        except ValueError as e:
+            print(f"❌ Invalid sheet structure — {e}")
+            print(f"Detected headers: {headers}")
+            return
+
+        # Find the account row and display balance
+        for row in all_values[1:]:
+            if str(row[acc_index]).replace(",", "").strip() == str(account_number).strip():
+                try:
+                    balance = float(str(row[bal_index]).replace("£", "").replace(",", "").strip() or 0)
+                except ValueError:
+                    balance = 0.0
+                print(f"📊 Current balance for {account_number}: £{balance:.2f}")
+                return
+
+        print(f"❌ Account number '{account_number}' not found.")
+
+    except Exception as e:
+        print(f"💥 Unexpected error while fetching balance: {e}")
+
+        
 
 # ==============================================
 # 📊 DISPLAY FUNCTIONS
 # ==============================================
 
-
-def display_balance(account_number):
-    """Show account balance."""
-    _, acc = find_account(account_number)
-    if not acc:
-        print(f"❌ Account {account_number} not found.")
-        return
-    print(f"📊 Current balance for {account_number}: £{float(acc.get('balance', 0)):.2f}")
-
-
 def view_transaction_history(account_number):
-    """Display last 10 transactions for an account."""
+    """Display the last 10 transactions for an account."""
     print(f"\n📋 Transaction History — {account_number}")
-    transactions = [normalize_headers(t) for t in transactions_sheet.get_all_records()]
-    account_txs = [
-        t for t in transactions if str(t.get("account_number")) == str(account_number)
-    ]
+
+    # Always get the latest transaction sheet
+    sheet = CLIENT.open("banking_app").worksheet("transactions")
+    transactions = [normalize_headers(t) for t in sheet.get_all_records()]
+
+    # Filter for this account
+    account_txs = [t for t in transactions if str(t.get("account_number")) == str(account_number)]
 
     if not account_txs:
         print("No transactions found for this account.")
         return
 
+    # Sort by date (oldest to newest)
     for t in account_txs:
         if not t.get("date_&_time"):
             t["date_&_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -300,18 +385,23 @@ def view_transaction_history(account_number):
         )
     )
 
+    # Create formatted table
     table = PrettyTable()
-    table.field_names = ["Date & Time", "Type", "Amount", "Balance After"]
+    table.field_names = ["Date & Time", "Transaction Type", "Amount (£)", "Balance After (£)"]
 
-    for t in account_txs[-10:]:
-        table.add_row(
-            [
-                t.get("date_&_time"),
-                t.get("type", "Unknown"),
-                f"£{float(t.get('amount', 0)):.2f}",
-                f"£{float(t.get('balance_after', 0)):.2f}",
-            ]
-        )
+    for t in account_txs[-10:]:  # show last 10
+        try:
+            amount = float(t.get("amount", 0))
+            balance_after = float(t.get("balance_after", 0))
+        except ValueError:
+            amount = balance_after = 0.0
+
+        table.add_row([
+            t.get("date_&_time"),
+            t.get("type", "Unknown"),
+            f"£{amount:.2f}",
+            f"£{balance_after:.2f}"
+        ])
 
     print(table)
 
@@ -407,6 +497,8 @@ def main():
                 elif choice == "7":
                     print("👋 Goodbye! Thanks for banking with us.")
                     break
+                else:
+                    print("Invalid choice. Please try again.")
 
             except ValueError as e:
                 print(f"⚠️  Error: {e}")
