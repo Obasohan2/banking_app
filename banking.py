@@ -4,7 +4,7 @@ import random
 from prettytable import PrettyTable
 from datetime import datetime
 import re
-
+import os
 
 # ==============================================
 # 🔧 GOOGLE SHEETS SETUP
@@ -27,14 +27,20 @@ def get_or_create_worksheet(title, headers):
     try:
         sheet = SHEET.worksheet(title)
     except gspread.exceptions.WorksheetNotFound:
-        sheet = SHEET.add_worksheet(title=title, rows="1000", cols=str(len(headers)))
+        sheet = SHEET.add_worksheet(
+            title=title, rows="1000", cols=str(len(headers))
+            )
         sheet.append_row(headers)
     return sheet
 
 
-accounts_sheet = get_or_create_worksheet("accounts", ["Name", "Account Number", "Balance"])
+accounts_sheet = get_or_create_worksheet(
+    "accounts", ["Name", "Account Number", "Balance"]
+    )
 transactions_sheet = get_or_create_worksheet(
-    "transactions", ["Account Number", "Type", "Amount", "Balance After", "Date & Time"]
+    "transactions", [
+        "Account Number", "Type", "Amount", "Balance After", "Date & Time"
+        ]
 )
 
 
@@ -48,71 +54,71 @@ def normalize_headers(record):
 
 
 def clean_account_numbers():
-    """Ensure all account numbers are valid 10-digit numbers."""
-    print("🔧 Checking and cleaning account numbers...")
-
+    """Clean account numbers by removing non-digit characters and ensuring uniqueness."""
+    print("🔧 Cleaning account numbers...")
     records = [normalize_headers(r) for r in accounts_sheet.get_all_records()]
     used_numbers = set()
 
     for i, record in enumerate(records, start=2):
-        raw = str(record.get("account_number", ""))
-        clean = re.sub(r"\D", "", raw)
+        raw_number = str(record.get("account_number", ""))
+        cleaned = re.sub(r"\D", "", raw_number)
+        if len(cleaned) < 10:
+            cleaned = cleaned.rjust(10, "0")
+        elif len(cleaned) > 10:
+            cleaned = cleaned[:10]
 
-        if len(clean) != 10:
-            clean = str(random.randint(1000000000, 9999999999))
+        while cleaned in used_numbers or cleaned == "":
+            cleaned = str(random.randint(1000000000, 9999999999))
+        used_numbers.add(cleaned)
 
-        while clean in used_numbers:
-            clean = str(random.randint(1000000000, 9999999999))
-        used_numbers.add(clean)
+        if cleaned != raw_number:
+            accounts_sheet.update_cell(i, 2, cleaned)
+            print(f"✅ Fixed: {raw_number} → {cleaned}")
 
-        if clean != raw:
-            accounts_sheet.update_cell(i, 2, clean)
-            print(f"✅ Fixed account for {record.get('name', 'Unknown')}: {raw} → {clean}")
-
-    print("🎉 Account number cleaning complete!\n")
+    print("🎉 Account numbers cleaned successfully!\n")
 
 
 def log_transaction(account_number, t_type, amount, balance_after):
     """Log a transaction into the Google Sheet."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    transactions_sheet.append_row([account_number, t_type, amount, balance_after, timestamp])
-
-
-# ==============================================
-# 🧾 VALIDATION
-# ==============================================
-
-def validate_name(name):
-    if not name or len(name.strip()) < 2:
-        raise ValueError("Name must contain at least 2 characters.")
-    return name.strip()
-
-
-def validate_account_number(acc_num):
-    if not acc_num.isdigit() or len(acc_num) != 10:
-        raise ValueError("Account number must be exactly 10 digits.")
-    return acc_num
+    transactions_sheet.append_row(
+        [account_number, t_type, f"{amount:.2f}", f"{balance_after:.2f}", timestamp]
+    )
 
 
 def safe_float(value):
+    """Safely convert a string to a non-negative float."""
+    cleaned = str(value).replace("£", "").replace(",", "").strip()
     try:
-        val = float(value)
-        if val < 0:
-            raise ValueError
-        return val
-    except (ValueError, TypeError):
-        raise ValueError(f"Invalid amount '{value}'. Enter a positive number.")
+        amount = float(cleaned)
+        if amount < 0:
+            raise ValueError("Amount cannot be negative.")
+        return amount
+    except ValueError:
+        raise ValueError(f"Invalid monetary value: {value}")
 
 
 # ==============================================
 # 💼 ACCOUNT OPERATIONS
 # ==============================================
 
+# def find_account(account_number):
+#     """Find account by number."""
+#     for i, raw in enumerate(accounts_sheet.get_all_records(), start=2):
+#         acc = normalize_headers(raw)
+#         if str(acc.get("account_number")) == str(account_number):
+#             return i, acc
+#     return None, None
+
 def find_account(account_number):
-    """Find account by number safely (case-insensitive headers)."""
+    """Find account by number safely."""
     for i, raw in enumerate(accounts_sheet.get_all_records(), start=2):
         acc = normalize_headers(raw)
         if str(acc.get("account_number")) == str(account_number):
+            try:
+                acc["balance"] = float(str(acc.get("balance", 0)).replace("£", "").replace(",", ""))
+            except ValueError:
+                acc["balance"] = 0.0
             return i, acc
     return None, None
 
@@ -145,7 +151,7 @@ def deposit(account_number, amount):
     new_balance = float(acc.get("balance", 0)) + amount
     accounts_sheet.update_cell(row, 3, new_balance)
     log_transaction(account_number, "Deposit", amount, new_balance)
-    print(f"✅ Deposited £{amount}. New balance: £{new_balance}")
+    print(f"✅ Deposited £{amount:.2f}. New balance: £{new_balance:.2f}")
 
 
 def withdraw(account_number, amount):
@@ -157,12 +163,12 @@ def withdraw(account_number, amount):
         return
     balance = float(acc.get("balance", 0))
     if amount > balance:
-        print(f"❌ Insufficient funds. Current balance: £{balance}")
+        print(f"❌ Insufficient funds. Current balance: £{balance:.2f}")
         return
     new_balance = balance - amount
     accounts_sheet.update_cell(row, 3, new_balance)
     log_transaction(account_number, "Withdrawal", amount, new_balance)
-    print(f"✅ Withdrawal successful. New balance: £{new_balance}")
+    print(f"✅ Withdrawal successful. New balance: £{new_balance:.2f}")
 
 
 # ==============================================
@@ -175,14 +181,12 @@ def display_balance(account_number):
     if not acc:
         print(f"❌ Account {account_number} not found.")
         return
-    print(f"📊 Current balance for {account_number}: £{acc.get('balance', 0)}")
+    print(f"📊 Current balance for {account_number}: £{float(acc.get('balance', 0)):.2f}")
 
 
 def view_transaction_history(account_number):
-    """Display recent transactions (header-insensitive, auto-fills missing timestamps, sorted by date)."""
+    """Display last 10 transactions for an account."""
     print(f"\n📋 Transaction History — {account_number}")
-
-    # Normalize headers for all transaction records
     transactions = [normalize_headers(t) for t in transactions_sheet.get_all_records()]
     account_txs = [t for t in transactions if str(t.get("account_number")) == str(account_number)]
 
@@ -190,32 +194,32 @@ def view_transaction_history(account_number):
         print("No transactions found for this account.")
         return
 
-    # Fill missing timestamps with current time
     for t in account_txs:
         if not t.get("date_&_time"):
             t["date_&_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Sort transactions by actual date/time (oldest to newest)
     account_txs.sort(
-        key=lambda x: datetime.strptime(x.get("date_&_time", ""), "%Y-%m-%d %H:%M:%S")
+        key=lambda x: datetime.strptime(
+            x.get("date_&_time", "1970-01-01 00:00:00"), "%Y-%m-%d %H:%M:%S"
+        )
     )
 
-    # Prepare display table
     table = PrettyTable()
     table.field_names = ["Date & Time", "Type", "Amount", "Balance After"]
 
-    for t in account_txs[-10:]:  # show last 10 transactions
-        date_time = t.get("date_&_time")
-        tx_type = t.get("type", "Unknown")
-        amount = f"£{t.get('amount', 0)}"
-        balance_after = f"£{t.get('balance_after', 0)}"
-        table.add_row([date_time, tx_type, amount, balance_after])
+    for t in account_txs[-10:]:
+        table.add_row([
+            t.get("date_&_time"),
+            t.get("type", "Unknown"),
+            f"£{float(t.get('amount', 0)):.2f}",
+            f"£{float(t.get('balance_after', 0)):.2f}"
+        ])
 
     print(table)
 
 
 def print_database():
-    """Display all accounts (safe header handling)."""
+    """Display all accounts (admin only)."""
     accounts = [normalize_headers(a) for a in accounts_sheet.get_all_records()]
     if not accounts:
         print("No accounts found.")
@@ -223,7 +227,7 @@ def print_database():
     table = PrettyTable()
     table.field_names = ["Name", "Account Number", "Balance"]
     for a in accounts:
-        table.add_row([a.get("name", "N/A"), a.get("account_number", "N/A"), a.get("balance", "N/A")])
+        table.add_row([a.get("name", "N/A"), a.get("account_number", "N/A"), f"£{float(a.get('balance', 0)):.2f}"])
     print(table)
 
 
@@ -231,8 +235,11 @@ def print_database():
 # 🧠 MENU
 # ==============================================
 
+def clear_screen():
+    os.system("cls" if os.name == "nt" else "clear")
+
+
 def get_choice():
-    """Get validated menu selection."""
     choice = input("Enter your choice: ").strip()
     if choice not in [str(i) for i in range(1, 8)]:
         print("❌ Invalid choice. Enter a number 1–7.")
@@ -241,7 +248,8 @@ def get_choice():
 
 
 def main():
-    print("=" * 30) 
+    clear_screen()
+    print("=" * 30)
     print("🏦 Welcome to the Banking App")
     print("=" * 30)
 
@@ -250,21 +258,14 @@ def main():
 
         while True:
             print("\nChoose an option:\n")
-            print("=" * 30) 
             print("1. Create Account")
-            print("=" * 30) 
             print("2. Withdraw Funds")
-            print("=" * 30) 
             print("3. Deposit Funds")
-            print("=" * 30) 
             print("4. Display Balance")
-            print("=" * 30) 
             print("5. View Transaction History")
-            print("=" * 30) 
             print("6. Print Database (Admin)")
-            print("=" * 30) 
             print("7. Exit")
-            print("=" * 30) 
+            print("=" * 30)
 
             choice = get_choice()
             if not choice:
@@ -272,29 +273,35 @@ def main():
 
             try:
                 if choice == "1":
-                    name = validate_name(input("Enter account name: "))
+                    name = input("Enter account name: ").strip()
+                    if len(name) < 2:
+                        raise ValueError("Name must be at least 2 characters.")
                     balance = safe_float(input("Enter initial balance (£): "))
                     create_account(name, balance)
 
                 elif choice == "2":
-                    acc = validate_account_number(input("Enter account number: "))
+                    acc = input("Enter account number: ").strip()
                     amt = safe_float(input("Enter withdrawal amount (£): "))
                     withdraw(acc, amt)
 
                 elif choice == "3":
-                    acc = validate_account_number(input("Enter account number: "))
+                    acc = input("Enter account number: ").strip()
                     amt = safe_float(input("Enter deposit amount (£): "))
                     deposit(acc, amt)
 
                 elif choice == "4":
-                    acc = validate_account_number(input("Enter account number: "))
+                    acc = input("Enter account number: ").strip()
                     display_balance(acc)
 
                 elif choice == "5":
-                    acc = validate_account_number(input("Enter account number: "))
+                    acc = input("Enter account number: ").strip()
                     view_transaction_history(acc)
 
                 elif choice == "6":
+                    admin_pw = input("Enter admin password: ")
+                    if admin_pw != "admin123":  # change as needed
+                        print("❌ Access denied.")
+                        continue
                     print_database()
 
                 elif choice == "7":
@@ -305,9 +312,9 @@ def main():
                 print(f"⚠️  Error: {e}")
             except Exception as e:
                 print(f"💥 Unexpected error: {e}")
-                
+
     except KeyboardInterrupt:
-        print("\n👋 Session terminated by user.")  
+        print("\n👋 Session terminated by user.")
     except Exception as e:
         print(f"💥 Fatal error: {e}")
 
