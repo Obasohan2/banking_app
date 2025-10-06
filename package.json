@@ -1,0 +1,10 @@
+{
+  "name": "python-app-placeholder",
+  "version": "1.0.0",
+  "description": "Placeholder package.json to satisfy Heroku Node.js buildpack",
+  "main": "index.js",
+  "scripts": {
+    "start": "echo 'No Node.js app — skipping.'"
+  },
+  "license": "MIT"
+}
