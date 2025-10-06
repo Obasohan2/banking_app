@@ -1,10 +1,10 @@
-import gspread
-from google.oauth2.service_account import Credentials
-import random
-from prettytable import PrettyTable
-from datetime import datetime
-import re
-import os
+import gspread  # for Google Sheets API
+from google.oauth2.service_account import Credentials  # for Google Sheets auth
+import random  # for generating account numbers
+from prettytable import PrettyTable  # for tabular display
+from datetime import datetime  # for timestamps
+import re  # for regex operations
+import os  # for clearing the console
 
 # ==============================================
 # 🔧 GOOGLE SHEETS SETUP
@@ -27,7 +27,9 @@ def get_or_create_worksheet(title, headers):
     try:
         sheet = SHEET.worksheet(title)
     except gspread.exceptions.WorksheetNotFound:
-        sheet = SHEET.add_worksheet(title=title, rows="1000", cols=str(len(headers)))
+        sheet = SHEET.add_worksheet(
+            title=title, rows="1000", cols=str(len(headers))
+            )
         sheet.append_row(headers)
     return sheet
 
@@ -36,7 +38,9 @@ accounts_sheet = get_or_create_worksheet(
     "accounts", ["Name", "Account Number", "Balance"]
 )
 transactions_sheet = get_or_create_worksheet(
-    "transactions", ["Account Number", "Type", "Amount", "Balance After", "Date & Time"]
+    "transactions", [
+        "Account Number", "Type", "Amount", "Balance After", "Date & Time"
+        ]
 )
 
 # ==============================================
@@ -50,7 +54,9 @@ def normalize_headers(record):
 
 
 def clean_account_numbers():
-    """Clean account numbers by removing non-digit characters and ensuring uniqueness."""
+    """
+    Remove non-digits and duplicates from account numbers.
+    """
     print("🔧 Cleaning account numbers...")
     records = [normalize_headers(r) for r in accounts_sheet.get_all_records()]
     used_numbers = set()
@@ -75,15 +81,21 @@ def clean_account_numbers():
 
 
 def log_transaction(account_number, t_type, amount, balance_after):
-    """Log a transaction into the Google Sheet."""
+    """
+    Log a transaction into the Google Sheet.
+    """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     transactions_sheet.append_row(
-        [account_number, t_type, f"{amount:.2f}", f"{balance_after:.2f}", timestamp]
+        [account_number, t_type, f"{amount:.2f}",
+         f"{balance_after:.2f}", timestamp
+         ]
     )
 
 
 def safe_float(value):
-    """Safely convert a string to a non-negative float."""
+    """
+    Safely convert a string to a non-negative float.
+    """
     cleaned = str(value).replace("£", "").replace(",", "").strip()
     try:
         amount = float(cleaned)
@@ -110,7 +122,7 @@ def find_account(account_number):
         print("❌ No data found in the 'accounts' sheet.")
         return None, None
 
-    # Normalize headers: lowercase, strip currency symbols and punctuation
+    # Normalize headers: remove £, parentheses, underscores, and case
     def normalize_header(h):
         return (
             h.lower()
@@ -133,17 +145,23 @@ def find_account(account_number):
         if bal_index is None:
             raise ValueError
     except ValueError:
-        print("❌ Invalid sheet structure. Could not find 'Account Number' or 'Balance' columns.")
+        print("❌ Missing 'Account Number' or 'Balance' columns.")
         print(f"Detected headers: {headers}")
         return None, None
 
     # Find the account
     for i, row in enumerate(all_values[1:], start=2):
-        if str(row[acc_index]).replace(",", "").strip() == str(account_number).strip():
+        if str(
+            row[acc_index]
+            ).replace(",", "").strip() == str(
+                account_number
+                ).strip():
             name = row[0]
             try:
                 balance = float(
-                    str(row[bal_index]).replace("£", "").replace(",", "").strip() or 0
+                    str(row[bal_index]).replace(
+                        "£", ""
+                        ).replace(",", "").strip() or 0
                 )
             except ValueError:
                 balance = 0.0
@@ -193,7 +211,9 @@ def create_account(name, initial_balance):
 
     # Optional live verification
     all_accounts = [normalize_headers(a) for a in sheet.get_all_records()]
-    created = next((a for a in all_accounts if str(a.get("account_number")) == str(acc_num)), None)
+    created = next((
+        a for a in all_accounts if str(a.get("account_number")) == str(acc_num)
+        ), None)
     if created:
         print("🔎 Verified in Google Sheets ✅")
     else:
@@ -209,12 +229,18 @@ def deposit(account_number, amount):
     # Get live data
     sheet = CLIENT.open("banking_app").worksheet("accounts")
     all_values = sheet.get_all_values()
-    headers = [h.lower().replace("£", "").replace("(", "").replace(")", "").strip() for h in all_values[0]]
+    headers = [
+        h.lower().replace("£", "").replace(
+            "(", ""
+            ).replace(")", "").strip() for h in all_values[0]
+        ]
 
     # Dynamically locate columns
     try:
         acc_index = headers.index("account number")
-        bal_index = next((i for i, h in enumerate(headers) if h.startswith("balance")), None)
+        bal_index = next(
+            (i for i, h in enumerate(headers) if h.startswith("balance")), None
+            )
         if bal_index is None:
             raise ValueError("Could not find a balance column.")
     except ValueError as e:
@@ -224,9 +250,17 @@ def deposit(account_number, amount):
 
     # Find the account row
     for i, row in enumerate(all_values[1:], start=2):
-        if str(row[acc_index]).replace(",", "").strip() == str(account_number).strip():
+        if str(
+            row[acc_index]
+            ).replace(",", "").strip() == str(
+                account_number
+                ).strip():
             try:
-                balance = float(str(row[bal_index]).replace("£", "").replace(",", "").strip() or 0)
+                balance = float(
+                    str(row[bal_index]).replace(
+                        "£", ""
+                        ).replace(",", "").strip() or 0
+                    )
             except ValueError:
                 balance = 0.0
 
@@ -234,7 +268,9 @@ def deposit(account_number, amount):
             sheet.update_cell(i, bal_index + 1, new_balance)
             log_transaction(account_number, "Deposit", amount, new_balance)
 
-            print(f"✅ Deposited £{amount:.2f}. New balance: £{new_balance:.2f}")
+            print(
+                f"✅ Deposited £{amount:.2f}. New balance: £{new_balance:.2f}"
+                )
             return
 
     print(f"❌ Account {account_number} not found.")
@@ -263,7 +299,9 @@ def withdraw(account_number, amount):
     # Locate headers dynamically
     try:
         acc_index = headers.index("account number")
-        bal_index = next((i for i, h in enumerate(headers) if h.startswith("balance")), None)
+        bal_index = next(
+            (i for i, h in enumerate(headers) if h.startswith("balance")), None
+            )
         if bal_index is None:
             raise ValueError("Could not find a balance column.")
     except ValueError as e:
@@ -273,9 +311,15 @@ def withdraw(account_number, amount):
 
     # Find matching account
     for i, row in enumerate(all_values[1:], start=2):
-        if str(row[acc_index]).replace(",", "").strip() == str(account_number).strip():
+        if str(
+            row[acc_index]
+            ).replace(",", "").strip() == str(
+                account_number
+                ).strip():
             try:
-                balance = float(str(row[bal_index]).replace("£", "").replace(",", "").strip() or 0)
+                balance = float(str(
+                    row[bal_index]
+                    ).replace("£", "").replace(",", "").strip() or 0)
             except ValueError:
                 balance = 0.0
 
@@ -296,7 +340,8 @@ def withdraw(account_number, amount):
 
 def display_balance(account_number):
     """
-    Display the live balance for a specific account (handles header variations).
+    Display the live balance for a specific account
+    (handles header variations).
     """
     print("⏳ Fetching balance...")
 
@@ -322,7 +367,11 @@ def display_balance(account_number):
         # Dynamically locate relevant columns
         try:
             acc_index = headers.index("account number")
-            bal_index = next((i for i, h in enumerate(headers) if h.startswith("balance")), None)
+            bal_index = next(
+                (i for i, h in enumerate(
+                    headers
+                    ) if h.startswith("balance")), None
+                )
             if bal_index is None:
                 raise ValueError("Balance column not found.")
         except ValueError as e:
@@ -332,12 +381,20 @@ def display_balance(account_number):
 
         # Find the account row and display balance
         for row in all_values[1:]:
-            if str(row[acc_index]).replace(",", "").strip() == str(account_number).strip():
+            if str(
+                row[acc_index]
+                ).replace(",", "").strip() == str(
+                    account_number
+                    ).strip():
                 try:
-                    balance = float(str(row[bal_index]).replace("£", "").replace(",", "").strip() or 0)
+                    balance = float(str(row[bal_index]).replace(
+                        "£", ""
+                        ).replace(",", "").strip() or 0)
                 except ValueError:
                     balance = 0.0
-                print(f"📊 Current balance for {account_number}: £{balance:.2f}")
+                print(
+                    f"📊 Current balance for {account_number}: £{balance:.2f}"
+                    )
                 return
 
         print(f"❌ Account number '{account_number}' not found.")
@@ -345,10 +402,10 @@ def display_balance(account_number):
     except Exception as e:
         print(f"💥 Unexpected error while fetching balance: {e}")
 
-        
 # ==============================================
 # 📊 DISPLAY FUNCTIONS
 # ==============================================
+
 
 def view_transaction_history(account_number):
     """
@@ -397,27 +454,41 @@ def view_transaction_history(account_number):
 
         # Filter transactions for this account
         filtered = [
-            row for row in all_values[1:]
-            if len(row) > acc_index and str(row[acc_index]).strip() == str(account_number)
+            row for row in all_values[1:]if len(row) > acc_index and str(
+                row[acc_index]
+                ).strip() == str(
+                account_number
+                )
         ]
 
         if not filtered:
             print("No transactions found for this account.")
             return
-
-        # Build and print table
+        # Build the table
         table = PrettyTable()
-        table.field_names = ["Date & Time", "Type", "Amount (£)", "Balance After (£)"]
+        table.field_names = [
+            "Date & Time", "Type", "Amount (£)", "Balance After (£)"
+            ]
 
         for row in filtered[-10:]:  # show last 10
             date_time = row[date_index] if len(row) > date_index else "N/A"
-            t_type = row[type_index] if type_index is not None and len(row) > type_index else "Unknown"
+            t_type = row[type_index] if type_index is not None and len(
+                row
+                ) > type_index else "Unknown"
             amount = row[amount_index] if len(row) > amount_index else "0"
-            balance_after = row[balance_index] if balance_index is not None and len(row) > balance_index else "0"
+            balance_after = row[
+                balance_index
+                ] if balance_index is not None and len(
+                row
+                ) > balance_index else "0"
 
             try:
-                amount = float(str(amount).replace("£", "").replace(",", "").strip() or 0)
-                balance_after = float(str(balance_after).replace("£", "").replace(",", "").strip() or 0)
+                amount = float(
+                    str(amount).replace("£", "").replace(",", "").strip() or 0
+                    )
+                balance_after = float(str(balance_after).replace(
+                    "£", ""
+                    ).replace(",", "").strip() or 0)
             except ValueError:
                 amount, balance_after = 0.0, 0.0
 
@@ -462,9 +533,15 @@ def print_database():
 
         # Find header positions dynamically
         try:
-            name_index = next((i for i, h in enumerate(headers) if "name" in h), 0)
-            acc_index = next((i for i, h in enumerate(headers) if "account" in h), 1)
-            bal_index = next((i for i, h in enumerate(headers) if h.startswith("balance")), None)
+            name_index = next((
+                i for i, h in enumerate(headers) if "name" in h
+                ), 0)
+            acc_index = next((
+                i for i, h in enumerate(headers) if "account" in h
+                ), 1)
+            bal_index = next((
+                i for i, h in enumerate(headers) if h.startswith("balance")
+                ), None)
 
             if bal_index is None:
                 raise ValueError("Could not find a balance column.")
@@ -481,7 +558,9 @@ def print_database():
             name = row[name_index] if len(row) > name_index else "N/A"
             account_number = row[acc_index] if len(row) > acc_index else "N/A"
             try:
-                balance = float(str(row[bal_index]).replace("£", "").replace(",", "").strip() or 0)
+                balance = float(str(row[bal_index]).replace(
+                    "£", ""
+                    ).replace(",", "").strip() or 0)
             except (ValueError, IndexError):
                 balance = 0.0
             table.add_row([name, account_number, f"£{balance:.2f}"])
@@ -514,13 +593,21 @@ def main():
         clean_account_numbers()
 
         while True:
+            print("=" * 30)
             print("\nChoose an option:\n")
+            print("=" * 30)
             print("1. Create Account")
+            print("=" * 30)
             print("2. Withdraw Funds")
+            print("=" * 30)
             print("3. Deposit Funds")
+            print("=" * 30)
             print("4. Display Balance")
+            print("=" * 30)
             print("5. View Transaction History")
+            print("=" * 30)
             print("6. Print Database (Admin)")
+            print("=" * 30)
             print("7. Exit")
             print("=" * 30)
 
@@ -562,7 +649,7 @@ def main():
                     print_database()
 
                 elif choice == "7":
-                    print("👋 Goodbye! Thanks for banking with us.")
+                    print("Exiting the application.👋 Goodbye!")
                     break
                 else:
                     print("Invalid choice. Please try again.")
