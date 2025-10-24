@@ -5,6 +5,7 @@ from prettytable import PrettyTable  # for tabular display
 from datetime import datetime  # for timestamps
 import re  # for regex operations
 import os  # for clearing the console
+import json  # for JSON operations
 
 # ==============================================
 # 🔧 GOOGLE SHEETS SETUP
@@ -16,6 +17,7 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 
+creds = json.load(open("creds.json"))
 CREDS = Credentials.from_service_account_file("creds.json")
 SCOPED_CREDS = CREDS.with_scopes(SCOPE)
 CLIENT = gspread.authorize(SCOPED_CREDS)
