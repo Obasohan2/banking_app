@@ -1,1 +1,1 @@
-web: python banking.py
+worker: python banking.py
