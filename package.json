@@ -1,0 +1,9 @@
+{
+  "name": "banking-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Node placeholder for Heroku buildpack detection",
+  "scripts": {
+    "build": "echo 'No frontend build step required'"
+  }
+}
