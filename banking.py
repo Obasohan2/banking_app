@@ -1,16 +1,14 @@
-import gspread
-from google.oauth2.service_account import Credentials
-import random
-from prettytable import PrettyTable
-from datetime import datetime
-import re
-import os
-import json
-import base64
-
+import gspread  # for Google Sheets API
+from google.oauth2.service_account import Credentials  # for Google Sheets auth
+import random  # for generating account numbers
+from prettytable import PrettyTable  # for tabular display
+from datetime import datetime  # for timestamps
+import re  # for regex operations
+import os  # for clearing the console
+import json  # for JSON operations
 
 # ==============================================
-# 🔧 GOOGLE SHEETS SETUP (HEROKU SAFE)
+# 🔧 GOOGLE SHEETS SETUP
 # ==============================================
 
 SCOPE = [
@@ -19,18 +17,8 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-CREDS_BASE64 = os.environ.get("CREDS_BASE64")
-
-if not CREDS_BASE64:
-    raise RuntimeError(
-        "CREDS_BASE64 environment variable not set. "
-        "Set it on Heroku before running the app."
-    )
-
-decoded_creds = base64.b64decode(CREDS_BASE64).decode("utf-8")
-creds_dict = json.loads(decoded_creds)
-
-CREDS = Credentials.from_service_account_info(creds_dict)
+creds = json.load(open("creds.json"))
+CREDS = Credentials.from_service_account_file("creds.json")
 SCOPED_CREDS = CREDS.with_scopes(SCOPE)
 CLIENT = gspread.authorize(SCOPED_CREDS)
 SHEET = CLIENT.open("banking_app")
@@ -331,6 +319,10 @@ def main():
 
         else:
             print("❌ Invalid choice")
+
+    print("DEBUG: About to call input()")
+    choice = input("Enter your choice: ")
+    print("DEBUG: You entered:", choice)
 
 
 if __name__ == "__main__":

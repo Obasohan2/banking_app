@@ -15,5 +15,8 @@
   "bugs": {
     "url": "https://github.com/Obasohan2/banking_app/issues"
   },
-  "homepage": "https://github.com/Obasohan2/banking_app#readme"
+  "homepage": "https://github.com/Obasohan2/banking_app#readme",
+  "dependencies": {
+    "python-shell": "^5.0.0"
+  }
 }
