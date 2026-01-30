@@ -8,7 +8,7 @@ import os  # for clearing the console
 import json  # for JSON operations
 
 # ==============================================
-#  GOOGLE SHEETS SETUP
+# 🔧 GOOGLE SHEETS SETUP
 # ==============================================
 
 SCOPE = [
@@ -17,21 +17,10 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-# Load the JSON string from Heroku config var
-creds_json_str = os.getenv("CREDS")
-
-if not creds_json_str:
-    raise ValueError("Missing 'CREDS' config var! Set it in Heroku dashboard → Settings → Config Vars.")
-
-try:
-    creds_info = json.loads(creds_json_str)
-except json.JSONDecodeError as e:
-    raise ValueError(f"Invalid JSON in 'CREDS' config var: {e}")
-
-# Create credentials directly from the dict (no file needed on Heroku)
-CREDS = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
-
-CLIENT = gspread.authorize(CREDS)
+creds = json.load(open("creds.json"))
+CREDS = Credentials.from_service_account_file("creds.json")
+SCOPED_CREDS = CREDS.with_scopes(SCOPE)
+CLIENT = gspread.authorize(SCOPED_CREDS)
 SHEET = CLIENT.open("banking_app")
 
 
@@ -523,7 +512,7 @@ def print_database():
     Display all accounts in the 'accounts' sheet (admin only).
     Automatically detects headers like 'Balance (£)' or 'Balance()'.
     """
-    print(" Fetching full account list...")
+    print("📂 Fetching full account list...")
 
     try:
         sheet = CLIENT.open("banking_app").worksheet("accounts")
@@ -657,25 +646,25 @@ def main():
                 elif choice == "6":
                     admin_pw = input("Enter admin password: ")
                     if admin_pw != "admin123":  # change as needed
-                        print(" Access denied.")
+                        print("❌ Access denied.")
                         continue
                     print_database()
 
                 elif choice == "7":
-                    print("Exiting the application. Goodbye!")
+                    print("Exiting the application.👋 Goodbye!")
                     break
                 else:
                     print("Invalid choice. Please try again.")
 
             except ValueError as e:
-                print(f"  Error: {e}")
+                print(f"⚠️  Error: {e}")
             except Exception as e:
-                print(f" Unexpected error: {e}")
+                print(f"💥 Unexpected error: {e}")
 
     except KeyboardInterrupt:
-        print("\n Session terminated by user.")
+        print("\n👋 Session terminated by user.")
     except Exception as e:
-        print(f" Fatal error: {e}")
+        print(f"💥 Fatal error: {e}")
 
 
 if __name__ == "__main__":
