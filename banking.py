@@ -3,6 +3,7 @@ import os
 import time
 import re
 import random
+import warnings
 import getpass
 from datetime import datetime
 
@@ -84,13 +85,23 @@ def read_input():
 
 
 def prompt_password(text):
+    """
+    Mask password input when possible.
+    Suppress warnings in web terminals.
+    """
     try:
-        return getpass.getpass(text + "\n> ")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            pwd = getpass.getpass(f"{text}\n> ")
+        print("****")
+        return pwd
     except Exception:
-        # Fallback for web terminals
+        # Fallback for environments without TTY
         print(text)
         print("> ", end="")
-        return read_input()
+        pwd = read_input()
+        print("****")
+        return pwd
 
 
 def prompt(text):
