@@ -1,4 +1,4 @@
-// index.js (fixed)
+// index.js (cleaned + fixed)
 
 const express = require('express');
 const app = express();
@@ -6,10 +6,10 @@ const http = require('http');
 const { PythonShell } = require('python-shell');
 const fs = require('fs');
 
-// Serve static files from ./static folder (index.html, xterm.css, xterm.js, etc.)
+// Serve static files (index.html, xterm.css, xterm.js, etc.)
 app.use(express.static('static'));
 
-// Explicitly serve index.html when user visits root URL (/)
+// Serve index.html on root URL
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/static/index.html');
 });
@@ -18,54 +18,81 @@ const server = http.createServer(app);
 const io = require('socket.io')(server);
 
 io.on('connection', (socket) => {
-    console.log("Socket Connected");
+    console.log('Socket Connected');
 
-    function run_python_script() {
+    let pyshell = null;  // single instance per socket
+
+    function startPython() {
         try {
-            let pyshell = new PythonShell('banking.py');
+            pyshell = new PythonShell('banking.py', {
+                mode: 'text',
+                pythonOptions: ['-u'],  // unbuffered output (critical!)
+                env: { PYTHONUNBUFFERED: '1' }
+            });
+
+            console.log('Python shell started');
+
+            // Force initial flush by sending newline after small delay
+            setTimeout(() => {
+                if (pyshell) {
+                    pyshell.send('\n');
+                    console.log('Sent initial newline to trigger Python flush');
+                }
+            }, 1000);  // 1 second delay to let script initialize
 
             socket.on('disconnect', () => {
-                console.log("Socket Disconnected");
-                try { pyshell.kill(); } catch (e) {}
+                console.log('Socket Disconnected');
+                if (pyshell) {
+                    try { pyshell.end(); } catch (e) {}
+                }
             });
 
             socket.on('command_entered', (command) => {
-                console.log("Socket Command:", command);
-                try { pyshell.send(command); } catch (e) {}
+                if (pyshell) {
+                    console.log('Socket Command:', command);
+                    try { pyshell.send(command); } catch (e) {}
+                }
             });
 
             pyshell.on('message', (message) => {
                 console.log('Python stdout:', message);
-                try { socket.emit("console_output", message); } catch (e) {}
+                try { socket.emit('console_output', message); } catch (e) {}
             });
 
             pyshell.on('close', () => {
                 console.log('Python process ended');
+                socket.emit('console_output', '\r\n[Python process ended]');
             });
 
             pyshell.on('error', (err) => {
-                console.log('Python error:', err);
-                try { socket.emit("console_output", "Python error: " + err.message); } catch (e) {}
+                console.error('Python error:', err);
+                try { socket.emit('console_output', 'Python error: ' + err.message); } catch (e) {}
+            });
+
+            pyshell.on('pythonError', (message) => {
+                console.error('Python STDERR:', message);
+                socket.emit('console_output', '[Python Error] ' + message);
             });
         } catch (e) {
-            console.error("Failed to start Python:", e);
-            socket.emit("console_output", "Failed to start Python: " + e.message);
+            console.error('Failed to start Python:', e);
+            socket.emit('console_output', 'Failed to start Python: ' + e.message);
         }
     }
 
+    // Handle creds and start Python
     if (process.env.CREDS) {
         fs.writeFile('creds.json', process.env.CREDS, 'utf8', (err) => {
             if (err) {
                 console.log('Error writing creds.json:', err);
-                socket.emit("console_output", "Error saving creds: " + err.message);
+                socket.emit('console_output', 'Error saving creds: ' + err.message);
             } else {
                 console.log('creds.json written successfully');
-                run_python_script();
+                startPython();
             }
         });
     } else {
-        console.log('No CREDS env var found – running without writing creds.json');
-        run_python_script();
+        console.log('No CREDS env var – starting Python without creds file');
+        startPython();
     }
 });
 
