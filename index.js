@@ -1,76 +1,61 @@
-
-const PythonShell = require('python-shell')['PythonShell'];
-const static = require('node-static');
+const express = require('express');
 const http = require('http');
+const { Server } = require('socket.io');
+const { PythonShell } = require('python-shell');
 const fs = require('fs');
 
-var static_serve = new(static.Server)('./static');
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 
-const server = http.createServer(function (req, res) {
-    static_serve.serve(req, res);
-})
+const PORT = process.env.PORT || 3000;
 
-const io = require('socket.io')(server);
+/* Serve static files */
+app.use(express.static('static'));
+
 io.on('connection', (socket) => {
     console.log("Socket Connected");
-    
+
+    let pyshell;
+
     function run_python_script() {
         try {
-            let pyshell = new PythonShell('run.py');
+            pyshell = new PythonShell('banking.py');
 
-            socket.on('disconnect', () =>  {
-                console.log("Socket Disconnected");
-                try {
-                    pyshell.kill();
-                } catch (e) {
-                    console.log('Cannot send any more to pyshell', e);
-                }
+            pyshell.on('message', (message) => {
+                console.log('process Out:', message);
+                socket.emit("console_output", message);
             });
 
-            socket.on('command_entered', (command) =>  {
-                console.log("Socket Command: ", command);
-                try {
-                    pyshell.send(command);
-                } catch (e) {
-                    console.log('Cannot send any more to pyshell', e);
-                }
-            });
-
-
-            // sends a message to the Python script via stdin
-
-            pyshell.on('message',  (message) => {
-                // received a message sent from the Python script (a simple "print" statement)
-                console.log('process Out: ', message);
-                try {
-                    socket.emit("console_output", message);
-                } catch (e) {
-                    console.log('Cannot write to socket', e);
-                }
+            pyshell.on('error', (err) => {
+                console.log('Process error:', err);
+                socket.emit("console_output", String(err));
             });
 
             pyshell.on('close', () => {
                 console.log('Process ended');
             });
 
-            pyshell.on('error', (message) => {
-                console.log('Process error:', message);
-                try {
-                    socket.emit("console_output", message.traceback.replace('\n', '\r\n'));
-                } catch (e) {
-                    console.log('Cannot write to socket', e);
-                }
-            });
         } catch (e) {
-            console.error("Exception running", e);
+            console.error("Exception running python", e);
         }
     }
 
-    if (process.env.CREDS != null) {
-        fs.writeFile('creds.json', process.env.CREDS, 'utf8', function(err) {
+    socket.on('command_entered', (command) => {
+        if (!pyshell) return;
+        console.log("Socket Command:", command);
+        pyshell.send(command);
+    });
+
+    socket.on('disconnect', () => {
+        console.log("Socket Disconnected");
+        if (pyshell) pyshell.kill();
+    });
+
+    if (process.env.CREDS) {
+        fs.writeFile('creds.json', process.env.CREDS, 'utf8', (err) => {
             if (err) {
-                console.log('Error writing file: ', err);
-                socket.emit("console_output", "Error saving credentials: " + err);
+                socket.emit("console_output", "Error saving credentials");
             } else {
                 run_python_script();
             }
@@ -80,5 +65,6 @@ io.on('connection', (socket) => {
     }
 });
 
-console.log('Starting node on port', process.env.PORT);
-server.listen(process.env.PORT);
+server.listen(PORT, () => {
+    console.log('Server running on port', PORT);
+});
