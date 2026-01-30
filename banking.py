@@ -320,7 +320,7 @@ def main():
 
         elif choice == "6":
             pw = input("Admin password: ")
-            if pw == "admin123":
+            if pw == "4460":
                 print_database()
             else:
                 print("❌ Access denied")
