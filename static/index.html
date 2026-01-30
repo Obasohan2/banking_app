@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Banking Terminal</title>
+    <link rel="stylesheet" href="xterm.css" />
+    <script src="xterm.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div id="terminal"></div>
+    <script>
+        const socket = io();
+        const term = new Terminal();
+        term.open(document.getElementById('terminal'));
+        term.write('Connecting to banking app...\r\n');
+
+        socket.on('connect', () => {
+            term.write('Connected!\r\n');
+        });
+
+        socket.on('console_output', (data) => {
+            term.write(data + '\r\n');
+        });
+
+        term.onData(data => {
+            socket.emit('command_entered', data);
+        });
+    </script>
+</body>
+</html>
