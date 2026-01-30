@@ -5,7 +5,6 @@ from prettytable import PrettyTable
 from datetime import datetime
 import re
 import os
-import json
 import sys
 import time
 
@@ -21,17 +20,17 @@ SCOPE = [
 
 
 def load_credentials():
-    """Wait for creds.json to exist and load it safely."""
     for _ in range(10):
         if os.path.exists("creds.json"):
             break
         time.sleep(0.3)
 
     if not os.path.exists("creds.json"):
-        print("❌ creds.json not found. Check Heroku config vars.")
+        print("❌ creds.json not found. Check Heroku config vars.", flush=True)
         sys.exit(1)
 
     return Credentials.from_service_account_file("creds.json", scopes=SCOPE)
+
 
 CREDS = load_credentials()
 CLIENT = gspread.authorize(CREDS)
@@ -59,6 +58,17 @@ transactions_sheet = get_or_create_worksheet(
 # 🧹 UTILITIES
 # ==============================================
 
+def read_input():
+    """Safe stdin reader for web terminals"""
+    return sys.stdin.readline().strip()
+
+
+def prompt(text):
+    print(text, flush=True)
+    print("> ", flush=True)
+    return read_input()
+
+
 def normalize_headers(record):
     return {k.lower().strip().replace(" ", "_"): v for k, v in record.items()}
 
@@ -79,7 +89,6 @@ def clean_account_numbers():
 
         if cleaned != raw:
             accounts_sheet.update_cell(i, 2, cleaned)
-            print(f"✅ Fixed {raw} → {cleaned}", flush=True)
 
     print("🎉 Account numbers cleaned.\n", flush=True)
 
@@ -96,14 +105,10 @@ def log_transaction(account, t_type, amount, balance):
 
 
 def safe_float(value):
-    try:
-        amount = float(str(value).replace("£", "").replace(",", "").strip())
-        if amount < 0:
-            raise ValueError
-        return amount
-    except ValueError:
+    amount = float(str(value).replace("£", "").replace(",", "").strip())
+    if amount < 0:
         raise ValueError("Invalid amount.")
-
+    return amount
 
 # ==============================================
 # 💼 ACCOUNT OPERATIONS
@@ -112,10 +117,10 @@ def safe_float(value):
 def find_account(account_number):
     sheet = SHEET.worksheet("accounts")
     values = sheet.get_all_values()
-    headers = [h.lower().replace("£", "").strip() for h in values[0]]
+    headers = [h.lower().strip() for h in values[0]]
 
     acc_i = headers.index("account number")
-    bal_i = next(i for i, h in enumerate(headers) if h.startswith("balance"))
+    bal_i = headers.index("balance")
 
     for row_i, row in enumerate(values[1:], start=2):
         if row[acc_i] == str(account_number):
@@ -182,7 +187,6 @@ def display_balance(account):
     else:
         print(f"💰 Balance: £{balance:.2f}\n", flush=True)
 
-
 # ==============================================
 # 📊 DISPLAY
 # ==============================================
@@ -209,27 +213,9 @@ def print_database():
 
     print(table, flush=True)
 
-
 # ==============================================
-# 🖥️ TERMINAL
+# 🖥️ MAIN LOOP
 # ==============================================
-
-def clear_screen():
-    print("\n" * 2, flush=True)
-
-
-def prompt(text):
-    print(text, flush=True)
-    return input("> ").strip()
-
-
-def get_choice():
-    choice = prompt("Enter your choice (1–7)")
-    if choice not in [str(i) for i in range(1, 8)]:
-        print("❌ Invalid choice. Enter a number 1–7.", flush=True)
-        return None
-    return choice
-
 
 def show_menu():
     print("\n" + "=" * 30, flush=True)
@@ -243,57 +229,53 @@ def show_menu():
     print("6. Print Database (Admin)", flush=True)
     print("7. Exit", flush=True)
     print("=" * 30, flush=True)
+    print("> ", flush=True)
 
 
 def main():
     print("Running your file: banking.py\n", flush=True)
+    clean_account_numbers()
 
-    try:
-        clean_account_numbers()
+    while True:
+        show_menu()
+        choice = read_input()
 
-        while True:
-            show_menu()
-            choice = get_choice()
+        if choice == "1":
+            name = prompt("Enter account name")
+            balance = safe_float(prompt("Enter initial balance (£)"))
+            create_account(name, balance)
 
-            if not choice:
-                continue
+        elif choice == "2":
+            acc = prompt("Enter account number")
+            amt = safe_float(prompt("Enter withdrawal amount (£)"))
+            withdraw(acc, amt)
 
-            if choice == "1":
-                name = prompt("Enter account name")
-                balance = safe_float(prompt("Enter initial balance (£)"))
-                create_account(name, balance)
+        elif choice == "3":
+            acc = prompt("Enter account number")
+            amt = safe_float(prompt("Enter deposit amount (£)"))
+            deposit(acc, amt)
 
-            elif choice == "2":
-                acc = prompt("Enter account number")
-                amt = safe_float(prompt("Enter withdrawal amount (£)"))
-                withdraw(acc, amt)
+        elif choice == "4":
+            acc = prompt("Enter account number")
+            display_balance(acc)
 
-            elif choice == "3":
-                acc = prompt("Enter account number")
-                amt = safe_float(prompt("Enter deposit amount (£)"))
-                deposit(acc, amt)
+        elif choice == "5":
+            acc = prompt("Enter account number")
+            view_transaction_history(acc)
 
-            elif choice == "4":
-                acc = prompt("Enter account number")
-                display_balance(acc)
+        elif choice == "6":
+            pw = prompt("Enter admin password")
+            if pw == "admin123":
+                print_database()
+            else:
+                print("❌ Access denied.", flush=True)
 
-            elif choice == "5":
-                acc = prompt("Enter account number")
-                view_transaction_history(acc)
+        elif choice == "7":
+            print("👋 Goodbye!", flush=True)
+            break
 
-            elif choice == "6":
-                pw = prompt("Enter admin password")
-                if pw != "admin123":
-                    print("❌ Access denied.", flush=True)
-                else:
-                    print_database()
-
-            elif choice == "7":
-                print("👋 Goodbye!", flush=True)
-                break
-
-    except Exception as e:
-        print(f"💥 Fatal error: {e}", flush=True)
+        else:
+            print("❌ Invalid choice.", flush=True)
 
 
 if __name__ == "__main__":
