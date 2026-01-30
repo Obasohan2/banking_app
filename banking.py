@@ -1,8 +1,13 @@
 import gspread
 from google.oauth2.service_account import Credentials
+import random
+from prettytable import PrettyTable
+from datetime import datetime
+import re
 import os
 import json
 import base64
+
 
 # ==============================================
 # 🔧 GOOGLE SHEETS SETUP (HEROKU SAFE)
