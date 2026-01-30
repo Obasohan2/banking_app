@@ -10,48 +10,48 @@ const io = new Server(server);
 
 const PORT = process.env.PORT || 8000;
 
-/* Serve static files */
 app.use(express.static("static"));
 
-function writeCredsIfNeeded() {
+function writeCreds() {
     if (process.env.CREDS) {
         fs.writeFileSync("creds.json", process.env.CREDS);
         console.log("✅ creds.json written from CREDS");
-    } else {
-        console.error("❌ CREDS env var not found");
     }
 }
 
 io.on("connection", (socket) => {
     console.log("Socket Connected");
 
-    let pyshell;
+    writeCreds();
 
-    function run_python_script() {
-        writeCredsIfNeeded();   // 🔑 MUST happen first
+    const pyshell = new PythonShell("banking.py", {
+        pythonOptions: ["-u"],
+        stdio: ["pipe", "pipe", "pipe"]
+    });
 
-        pyshell = new PythonShell("banking.py");
+    pyshell.on("message", (message) => {
+        socket.emit("console_output", message);
+    });
 
-        pyshell.on("message", (message) => {
-            socket.emit("console_output", message);
-        });
+    pyshell.on("error", (err) => {
+        socket.emit("console_output", String(err));
+    });
 
-        pyshell.on("error", (err) => {
-            socket.emit("console_output", String(err));
-        });
+    socket.on("command_entered", (command) => {
+        pyshell.send(command);
+    });
 
-        socket.on("command_entered", (command) => {
-            pyshell.send(command);
-        });
+    socket.on("disconnect", () => {
+        console.log("🔌 Socket disconnected");
+        pyshell.kill();
+    });
 
-        socket.on("disconnect", () => {
-            if (pyshell) pyshell.kill();
-        });
-    }
-
-    run_python_script();
+    // 🔥 Kickstart Python input()
+    setTimeout(() => {
+        pyshell.send("");
+    }, 200);
 });
 
 server.listen(PORT, () => {
-    console.log("Server running on port", PORT);
+    console.log("🚀 Server running on port", PORT);
 });
