@@ -1,11 +1,8 @@
-import gspread  # for Google Sheets API
-from google.oauth2.service_account import Credentials  # for Google Sheets auth
-import random  # for generating account numbers
-from prettytable import PrettyTable  # for tabular display
-from datetime import datetime  # for timestamps
-import re  # for regex operations
-import os  # for clearing the console / env vars
-import json  # for JSON operations
+import gspread
+from google.oauth2.service_account import Credentials
+import os
+import json
+import base64
 
 # ==============================================
 # 🔧 GOOGLE SHEETS SETUP (HEROKU SAFE)
@@ -17,16 +14,18 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-# Load credentials from environment variable (Heroku)
-CREDS_JSON = os.environ.get("CREDS")
+CREDS_BASE64 = os.environ.get("CREDS_BASE64")
 
-if CREDS_JSON:
-    creds_dict = json.loads(CREDS_JSON)
-    CREDS = Credentials.from_service_account_info(creds_dict)
-else:
-    # Local development fallback
-    CREDS = Credentials.from_service_account_file("creds.json")
+if not CREDS_BASE64:
+    raise RuntimeError(
+        "CREDS_BASE64 environment variable not set. "
+        "Set it on Heroku before running the app."
+    )
 
+decoded_creds = base64.b64decode(CREDS_BASE64).decode("utf-8")
+creds_dict = json.loads(decoded_creds)
+
+CREDS = Credentials.from_service_account_info(creds_dict)
 SCOPED_CREDS = CREDS.with_scopes(SCOPE)
 CLIENT = gspread.authorize(SCOPED_CREDS)
 SHEET = CLIENT.open("banking_app")
