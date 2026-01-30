@@ -206,64 +206,82 @@ def clear_screen():
     print("\n" * 2, flush=True)
 
 
+def prompt(text):
+    print(text, flush=True)
+    return input("> ").strip()
+
+
 def get_choice():
-    raw = input("Enter option (1–7): ").strip()
-    print(f">>> {raw}", flush=True)
-    return raw if raw in list("1234567") else None
+    choice = prompt("Enter your choice (1–7)")
+    if choice not in [str(i) for i in range(1, 8)]:
+        print("❌ Invalid choice. Enter a number 1–7.", flush=True)
+        return None
+    return choice
+
+
+def show_menu():
+    print("\n" + "=" * 30, flush=True)
+    print("🏦 Welcome to the Banking App", flush=True)
+    print("=" * 30, flush=True)
+    print("1. Create Account", flush=True)
+    print("2. Withdraw Funds", flush=True)
+    print("3. Deposit Funds", flush=True)
+    print("4. Display Balance", flush=True)
+    print("5. View Transaction History", flush=True)
+    print("6. Print Database (Admin)", flush=True)
+    print("7. Exit", flush=True)
+    print("=" * 30, flush=True)
 
 
 def main():
-    clear_screen()
-    print("🏦 Banking App", flush=True)
-    print("=" * 30, flush=True)
+    print("Running your file: banking.py\n", flush=True)
 
-    clean_account_numbers()
+    try:
+        clean_account_numbers()
 
-    while True:
-        print("\n1 Create Account", flush=True)
-        print("2 Withdraw", flush=True)
-        print("3 Deposit", flush=True)
-        print("4 Balance", flush=True)
-        print("5 History", flush=True)
-        print("6 Admin View", flush=True)
-        print("7 Exit", flush=True)
+        while True:
+            show_menu()
+            choice = get_choice()
 
-        choice = get_choice()
-        if not choice:
-            print("❌ Invalid choice.", flush=True)
-            continue
+            if not choice:
+                continue
 
-        try:
             if choice == "1":
-                create_account(
-                    input("Name: "),
-                    safe_float(input("Initial balance: "))
-                )
+                name = prompt("Enter account name")
+                balance = safe_float(prompt("Enter initial balance (£)"))
+                create_account(name, balance)
 
             elif choice == "2":
-                withdraw(input("Account: "), safe_float(input("Amount: ")))
+                acc = prompt("Enter account number")
+                amt = safe_float(prompt("Enter withdrawal amount (£)"))
+                withdraw(acc, amt)
 
             elif choice == "3":
-                deposit(input("Account: "), safe_float(input("Amount: ")))
+                acc = prompt("Enter account number")
+                amt = safe_float(prompt("Enter deposit amount (£)"))
+                deposit(acc, amt)
 
             elif choice == "4":
-                display_balance(input("Account: "))
+                acc = prompt("Enter account number")
+                display_balance(acc)
 
             elif choice == "5":
-                view_transaction_history(input("Account: "))
+                acc = prompt("Enter account number")
+                view_transaction_history(acc)
 
             elif choice == "6":
-                if input("Admin password: ") == "admin123":
-                    print_database()
-                else:
+                pw = prompt("Enter admin password")
+                if pw != "admin123":
                     print("❌ Access denied.", flush=True)
+                else:
+                    print_database()
 
             elif choice == "7":
                 print("👋 Goodbye!", flush=True)
                 break
 
-        except Exception as e:
-            print(f"💥 Error: {e}", flush=True)
+    except Exception as e:
+        print(f"💥 Fatal error: {e}", flush=True)
 
 
 if __name__ == "__main__":
