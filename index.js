@@ -1,4 +1,4 @@
-// index.js (updated)
+// index.js (fixed)
 
 const express = require('express');
 const app = express();
@@ -6,8 +6,13 @@ const http = require('http');
 const { PythonShell } = require('python-shell');
 const fs = require('fs');
 
-// Serve static files from ./static (index.html, xterm.js, xterm.css, etc.)
+// Serve static files from ./static folder (index.html, xterm.css, xterm.js, etc.)
 app.use(express.static('static'));
+
+// Explicitly serve index.html when user visits root URL (/)
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/static/index.html');
+});
 
 const server = http.createServer(app);
 const io = require('socket.io')(server);
@@ -17,7 +22,7 @@ io.on('connection', (socket) => {
 
     function run_python_script() {
         try {
-            let pyshell = new PythonShell('banking.py');  // your Python file
+            let pyshell = new PythonShell('banking.py');
 
             socket.on('disconnect', () => {
                 console.log("Socket Disconnected");
@@ -54,10 +59,12 @@ io.on('connection', (socket) => {
                 console.log('Error writing creds.json:', err);
                 socket.emit("console_output", "Error saving creds: " + err.message);
             } else {
+                console.log('creds.json written successfully');
                 run_python_script();
             }
         });
     } else {
+        console.log('No CREDS env var found – running without writing creds.json');
         run_python_script();
     }
 });
