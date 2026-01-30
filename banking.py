@@ -1,6 +1,3 @@
-import sys
-sys.stdout.reconfigure(line_buffering=True)
-
 import gspread
 from google.oauth2.service_account import Credentials
 import random
@@ -9,9 +6,11 @@ from datetime import datetime
 import re
 import os
 import json
+import sys
+import time
 
 # ==============================================
-# 🔧 GOOGLE SHEETS SETUP
+# 🔧 GOOGLE SHEETS SETUP (HEROKU SAFE)
 # ==============================================
 
 SCOPE = [
@@ -20,9 +19,22 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-CREDS = Credentials.from_service_account_file("creds.json")
-SCOPED_CREDS = CREDS.with_scopes(SCOPE)
-CLIENT = gspread.authorize(SCOPED_CREDS)
+
+def load_credentials():
+    """Wait for creds.json to exist and load it safely."""
+    for _ in range(10):
+        if os.path.exists("creds.json"):
+            break
+        time.sleep(0.3)
+
+    if not os.path.exists("creds.json"):
+        print("❌ creds.json not found. Check Heroku config vars.")
+        sys.exit(1)
+
+    return Credentials.from_service_account_file("creds.json", scopes=SCOPE)
+
+CREDS = load_credentials()
+CLIENT = gspread.authorize(CREDS)
 SHEET = CLIENT.open("banking_app")
 
 
