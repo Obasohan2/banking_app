@@ -6,6 +6,8 @@ from datetime import datetime  # for timestamps
 import re  # for regex operations
 import os  # for clearing the console
 import json  # for JSON operations
+import sys  # for system operations
+sys.stdout.reconfigure(line_buffering=True)
 
 # ==============================================
 # 🔧 GOOGLE SHEETS SETUP
@@ -256,7 +258,10 @@ def print_database():
 
 
 def clear_screen():
-    os.system("cls" if os.name == "nt" else "clear")
+    if os.getenv('DYNO'):  # Heroku env var – only disable on Heroku
+        print("\033[H\033[J", end='', flush=True)  # ANSI clear (safe in pipe)
+    else:
+        os.system("cls" if os.name == "nt" else "clear")
 
 
 def get_choice():
@@ -265,22 +270,32 @@ def get_choice():
 
 
 def main():
-    clear_screen()
+    print("PYTHON SCRIPT STARTED - WEB TERMINAL MODE")
+    print("Waiting for your input...")
+    sys.stdout.flush()
+
+    # clear_screen()  # commented
+
     print("🏦 Welcome to the Banking App")
+    print("=" * 30)
+    sys.stdout.flush()
 
     clean_account_numbers()
+    sys.stdout.flush()
+
+    # rest of your code...
 
     while True:
-        print("""
-1. Create Account
-2. Withdraw Funds
-3. Deposit Funds
-4. Display Balance
-5. View Transaction History
-6. Print Database (Admin)
-7. Exit
-""")
-
+        print("\nChoose an option:\n")
+        print("1. Create Account")
+        print("2. Withdraw Funds")
+        print("3. Deposit Funds")
+        print("4. Display Balance")
+        print("5. View Transaction History")
+        print("6. Print Database (Admin)")
+        print("7. Exit")
+        print("=" * 30)
+        sys.stdout.flush()
         choice = get_choice()
 
         if choice == "1":
