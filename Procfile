@@ -1,1 +1,1 @@
-web: python banking.py
+web: node index.js
