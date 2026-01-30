@@ -3,11 +3,18 @@ import os
 import time
 import re
 import random
+import getpass
 from datetime import datetime
 
 import gspread
 from google.oauth2.service_account import Credentials
 from prettytable import PrettyTable
+
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
+if not ADMIN_PASSWORD:
+    print("⚠️ ADMIN_PASSWORD environment variable not set.")
+
 
 # ======================================================
 # 🔧 STDOUT CONFIG (NO flush=True REQUIRED)
@@ -70,9 +77,20 @@ transactions_sheet = get_or_create_worksheet(
 # 🧹 UTILITIES
 # ======================================================
 
+
 def read_input():
     """Reliable stdin reader for web terminals."""
     return sys.stdin.readline().strip()
+
+
+def prompt_password(text):
+    try:
+        return getpass.getpass(text + "\n> ")
+    except Exception:
+        # Fallback for web terminals
+        print(text)
+        print("> ", end="")
+        return read_input()
 
 
 def prompt(text):
@@ -134,6 +152,7 @@ def log_transaction(account, t_type, amount, balance):
 # ======================================================
 # 💼 ACCOUNT OPERATIONS
 # ======================================================
+
 
 def find_account(account_number):
     sheet = accounts_sheet
@@ -309,8 +328,8 @@ def main():
                 view_transaction_history(acc)
 
             elif choice == "6":
-                pw = prompt("Enter admin password")
-                if pw == "4460":
+                password = prompt_password("Enter admin password")
+                if password == ADMIN_PASSWORD:
                     print_database()
                 else:
                     print("❌ Access denied.\n")
