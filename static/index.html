@@ -1,29 +1,101 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-    <title>Banking Terminal</title>
-    <link rel="stylesheet" href="xterm.css" />
-    <script src="xterm.js"></script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Python Banking Terminal</title>
+
+    <!-- xterm.css and xterm.js from CDN (working version) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+
+    <!-- Socket.IO client from your own server (matches server version) -->
     <script src="/socket.io/socket.io.js"></script>
+
+    <style>
+        body { margin: 0; background: #1e1e1e; font-family: monospace; color: #fff; }
+        #terminal { width: 100vw; height: 100vh; padding: 10px; box-sizing: border-box; }
+        button { position: absolute; top: 10px; right: 10px; z-index: 10; padding: 8px 16px; }
+    </style>
 </head>
 <body>
+    <button onclick="window.location.reload()">Restart Terminal</button>
     <div id="terminal"></div>
+
     <script>
-        const socket = io();
-        const term = new Terminal();
-        term.open(document.getElementById('terminal'));
-        term.write('Connecting to banking app...\r\n');
+        let socket = null;
+        let term = null;
+        let buffer = '';
 
-        socket.on('connect', () => {
-            term.write('Connected!\r\n');
-        });
+        function initSocket() {
+            socket = io();  // auto-connects to current host/port
 
-        socket.on('console_output', (data) => {
-            term.write(data + '\r\n');
-        });
+            socket.on('connect', () => {
+                console.log('Socket connected');
+                term.writeln('\r\nConnected to banking backend!');
+                term_prompt();
+            });
 
-        term.onData(data => {
-            socket.emit('command_entered', data);
+            socket.on('console_output', (msg) => {
+                console.log('Python output:', msg);
+                term.writeln(msg);
+                term_prompt();  // show prompt after each output line
+            });
+
+            socket.on('connect_error', (err) => {
+                console.error('Socket error:', err);
+                term.writeln('\r\nConnection error: ' + err.message);
+            });
+        }
+
+        function term_prompt() {
+            buffer = '';
+            term.write('\r\n$ ');
+        }
+
+        function initTerminal() {
+            term = new Terminal({
+                cursorBlink: true,
+                theme: {
+                    background: '#1e1e1e',
+                    foreground: '#e0e0e0',
+                    cursor: '#00ff00'
+                },
+                fontFamily: 'Consolas, monospace',
+                fontSize: 16,
+                lineHeight: 1.2
+            });
+
+            term.open(document.getElementById('terminal'));
+            term.fit(); // auto-resize to container (optional, needs addon)
+
+            term.writeln('Python Banking Terminal');
+            term.writeln('Type numbers 1-7 and press Enter');
+            term_prompt();
+
+            term.onData((e) => {
+                if (e === '\r') { // Enter
+                    if (buffer.trim()) {
+                        console.log('Sending command:', buffer.trim());
+                        socket.emit('command_entered', buffer.trim());
+                    }
+                    term_prompt();
+                } else if (e === '\u007F') { // Backspace
+                    if (term.buffer.x > 3) { // protect prompt
+                        term.write('\b \b');
+                        buffer = buffer.slice(0, -1);
+                    }
+                } else {
+                    buffer += e;
+                    term.write(e);
+                }
+            });
+        }
+
+        // Start everything when page is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            initSocket();
+            initTerminal();
         });
     </script>
 </body>
