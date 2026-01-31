@@ -16,14 +16,13 @@ from prettytable import PrettyTable
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 if not ADMIN_PASSWORD:
-    print("Admin features (Print Database, Clean Accounts) will be disabled.\n")
+    print("Admin features (Print Database) will be disabled unless ADMIN_PASSWORD env var is set.\n")
 
 SCOPE = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/drive"
 ]
-
 
 # ======================================================
 #   GOOGLE SHEETS SETUP
@@ -115,7 +114,6 @@ def parse_balance(value):
     if not value:
         return 0.0
     try:
-        # Remove currency, thousand separators, and non-numeric except decimal
         cleaned = re.sub(r'[^\d.]', '', str(value).strip())
         return float(cleaned)
     except (ValueError, TypeError):
@@ -148,14 +146,13 @@ def find_account(account_number):
 
     headers = [str(h).lower().strip() for h in values[0]]
 
-    # Flexible column detection
     acc_idx = None
     bal_idx = None
     upd_idx = None
 
     for i, h in enumerate(headers):
         if any(k in h for k in ["account", "code", "acc"]):
-            if acc_idx is None:  # take first match
+            if acc_idx is None:
                 acc_idx = i
         if "balance" in h or "bal" in h:
             if bal_idx is None:
@@ -167,14 +164,6 @@ def find_account(account_number):
     if acc_idx is None or bal_idx is None:
         print("Error: Cannot find required columns (need something like 'Account Number' and 'Balance').")
         return None, None, None
-
-    # Warn if using fuzzy matching
-    if not any(exact in headers[acc_idx] for exact in ["account number", "account"]):
-        print(f"Note: Using fuzzy match for account column: '{values[0][acc_idx]}'")
-    if not any(exact in headers[bal_idx] for exact in ["balance"]):
-        print(f"Note: Using fuzzy match for balance column: '{values[0][bal_idx]}'")
-    if upd_idx is None:
-        print("Note: No timestamp/updated column found — showing '—' instead.")
 
     for row_idx, row in enumerate(values[1:], start=2):
         if len(row) > acc_idx and str(row[acc_idx]).strip() == str(account_number):
@@ -312,92 +301,48 @@ def print_all_accounts():
     print()
 
 
-def clean_account_numbers_admin():
-    print("WARNING: This will normalize and deduplicate all account numbers.")
-    print("This action cannot be undone!\n")
-    confirm = read_input("Type YES to continue: ").strip().upper()
-    if confirm != "YES":
-        print("Operation cancelled.\n")
-        return
-
-    values = accounts_sheet.get_all_values()
-    if len(values) < 2:
-        print("No accounts to clean.\n")
-        return
-
-    # Try to find account number column
-    headers = [str(h).lower().strip() for h in values[0]]
-    acc_col = None
-    for i, h in enumerate(headers):
-        if any(k in h for k in ["account", "code", "acc"]):
-            acc_col = i
-            break
-
-    if acc_col is None:
-        print("Cannot find account number column — cleaning aborted.")
-        return
-
-    used = set()
-    updates = []
-
-    for i, row in enumerate(values[1:], start=2):
-        if len(row) <= acc_col:
-            continue
-        raw = str(row[acc_col]).strip()
-        cleaned = re.sub(r"\D", "", raw)[:10].zfill(10)
-
-        while cleaned in used or not cleaned.isdigit():
-            cleaned = str(random.randint(1000000000, 9999999999))
-
-        used.add(cleaned)
-
-        if cleaned != raw:
-            updates.append({
-                'range': f'{chr(65 + acc_col)}{i}',
-                'values': [[cleaned]]
-            })
-
-    if updates:
-        for upd in updates:
-            accounts_sheet.update(upd['range'], upd['values'])
-        print(f"Cleaned {len(updates)} account numbers.\n")
-    else:
-        print("All account numbers already clean.\n")
-
-
 # ======================================================
 #   MAIN INTERFACE
 # ======================================================
 
 def show_menu():
     print("\n" + "="*40)
-    print("      🏦  Dreams Banking Terminal  ")
+    print("      🏦  DREAMS BANKING TERMINAL  ")
     print("="*40)
     print("1. Create New Account")
     print("2. Deposit Funds")
     print("3. Withdraw Funds")
     print("4. Check Balance")
-    print("5. View Transaction History - ADMIN only")
-    if ADMIN_PASSWORD:
-        print("6. Print All Accounts (Admin)")
-        print("7. Clean Account Numbers (Admin)")
-    print("8. Exit")
+    print("5. View Transaction History")
+    print("6. Print Database (Admin)")
+    print("7. Exit")
     print("="*40)
     print("> ", end="", flush=True)
 
 
 def get_valid_account_number():
     while True:
-        acc = read_input("Enter 10-digit account number")
+        acc = read_input("Enter 10-digit account number\n(or type 'q' / 'quit' / 'exit' to cancel)")
+        acc_clean = acc.strip().lower()
+
+        if acc_clean in ("q", "quit", "exit"):
+            print("Operation cancelled.\n")
+            return None
+
         if validate_account_number(acc):
             return acc
-        print("Invalid format. Please enter exactly 10 digits.\n")
+
+        print("Invalid account number, please try again or press 'q' to cancel/quit!\n")
 
 
 def main():
     while True:
         show_menu()
-        choice = sys.stdin.readline().strip()
+        choice = sys.stdin.readline().strip().lower()
+
+        if choice in ("q", "quit", "exit"):
+            print("\nThank you for using the Dreams Banking Terminal. Goodbye!\n")
+            break
 
         try:
             if choice == "1":
@@ -411,6 +356,9 @@ def main():
 
             elif choice in ("2", "3", "4", "5"):
                 acc = get_valid_account_number()
+                if acc is None:
+                    continue  # user cancelled
+
                 if choice == "2":
                     amt = parse_amount(read_input("Enter deposit amount (£)"))
                     deposit(acc, amt)
@@ -422,26 +370,22 @@ def main():
                 elif choice == "5":
                     view_transaction_history(acc)
 
-            elif choice == "6" and ADMIN_PASSWORD:
-                pwd = prompt_password("Enter admin password:")
-                if pwd == ADMIN_PASSWORD:
-                    print_all_accounts()
+            elif choice == "6":
+                if not ADMIN_PASSWORD:
+                    print("Admin features are disabled (ADMIN_PASSWORD environment variable is not set).\n")
                 else:
-                    print("Access denied.\n")
+                    pwd = prompt_password("Enter admin password:")
+                    if pwd == ADMIN_PASSWORD:
+                        print_all_accounts()
+                    else:
+                        print("Access denied.\n")
 
-            elif choice == "7" and ADMIN_PASSWORD:
-                pwd = prompt_password("Enter admin password:")
-                if pwd == ADMIN_PASSWORD:
-                    clean_account_numbers_admin()
-                else:
-                    print("Access denied.\n")
-
-            elif choice == "8":
+            elif choice == "7":
                 print("\nThank you for using the Dreams Banking Terminal. Goodbye!\n")
                 break
 
             else:
-                print("Invalid option. Please try again.\n")
+                print("Invalid choice, please try again or press 'q' to quit!\n")
 
         except ValueError as e:
             print(f"Error: {e}\n")
