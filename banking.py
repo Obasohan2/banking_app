@@ -24,6 +24,11 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 
+# Transfer settings
+MIN_TRANSFER_AMOUNT = 10.00
+TRANSFER_FEE_PERCENT = 0.01   # 1%
+MIN_FEE = 1.00
+
 # ======================================================
 #   GOOGLE SHEETS SETUP
 # ======================================================
@@ -103,8 +108,8 @@ def parse_amount(value):
     try:
         cleaned = str(value).replace("£", "").replace(",", "").strip()
         amount = float(cleaned)
-        if amount < 0:
-            raise ValueError("Amount cannot be negative.")
+        if amount <= 0:
+            raise ValueError("Amount must be positive.")
         return amount
     except (ValueError, TypeError):
         raise ValueError("Invalid amount. Please enter a positive number.")
@@ -135,6 +140,21 @@ def log_transaction(account, t_type, amount, balance_after):
     ])
 
 
+def get_valid_account_number(prompt="Enter 10-digit account number"):
+    while True:
+        acc = read_input(prompt + "\n(or type 'q' / 'quit' / 'exit' to cancel)")
+        acc_clean = acc.strip().lower()
+
+        if acc_clean in ("q", "quit", "exit"):
+            print("Operation cancelled.\n")
+            return None
+
+        if validate_account_number(acc):
+            return acc
+
+        print("Invalid account number, please try again or press 'q' to cancel/quit!\n")
+
+
 # ======================================================
 #   ACCOUNT OPERATIONS
 # ======================================================
@@ -142,37 +162,125 @@ def log_transaction(account, t_type, amount, balance_after):
 def find_account(account_number):
     values = accounts_sheet.get_all_values()
     if len(values) < 2:
-        return None, None, None
+        return None, None, None, None
 
     headers = [str(h).lower().strip() for h in values[0]]
 
+    name_idx = None
     acc_idx = None
     bal_idx = None
     upd_idx = None
 
     for i, h in enumerate(headers):
+        if "name" in h:
+            name_idx = i
         if any(k in h for k in ["account", "code", "acc"]):
-            if acc_idx is None:
-                acc_idx = i
+            acc_idx = acc_idx or i
         if "balance" in h or "bal" in h:
-            if bal_idx is None:
-                bal_idx = i
+            bal_idx = bal_idx or i
         if any(k in h for k in ["updated", "timestamp", "time", "last", "update", "stamps"]):
-            if upd_idx is None:
-                upd_idx = i
+            upd_idx = upd_idx or i
 
     if acc_idx is None or bal_idx is None:
-        print("Error: Cannot find required columns (need something like 'Account Number' and 'Balance').")
-        return None, None, None
+        print("Error: Cannot find required columns.")
+        return None, None, None, None
 
     for row_idx, row in enumerate(values[1:], start=2):
         if len(row) > acc_idx and str(row[acc_idx]).strip() == str(account_number):
+            name = row[name_idx] if name_idx is not None and len(row) > name_idx else "Unknown"
             balance = parse_balance(row[bal_idx] if len(row) > bal_idx else "")
-            last_upd = ""
-            if upd_idx is not None and len(row) > upd_idx:
-                last_upd = str(row[upd_idx]).strip()
-            return row_idx, balance, last_upd or "—"
-    return None, None, None
+            last_upd = row[upd_idx] if upd_idx is not None and len(row) > upd_idx else "—"
+            return row_idx, name, balance, last_upd
+    return None, None, None, None
+
+
+def update_balance(row, new_balance):
+    now = get_current_timestamp()
+    accounts_sheet.batch_update([{
+        'range': f'C{row}:D{row}',
+        'values': [[f"{new_balance:.2f}", now]]
+    }])
+
+
+def transfer_money():
+    print("\n" + "-"*50)
+    print("           MONEY TRANSFER")
+    print("-"*50)
+
+    from_acc = get_valid_account_number("Source account number")
+    if from_acc is None:
+        return
+
+    to_acc = get_valid_account_number("Destination account number")
+    if to_acc is None:
+        return
+
+    if from_acc == to_acc:
+        print("Cannot transfer money to the same account.\n")
+        return
+
+    try:
+        amount_str = read_input("Amount to transfer (£)")
+        amount = parse_amount(amount_str)
+    except ValueError as e:
+        print(f"Error: {e}\n")
+        return
+
+    if amount < MIN_TRANSFER_AMOUNT:
+        print(f"Minimum transfer amount is £{MIN_TRANSFER_AMOUNT:.2f}.\n")
+        return
+
+    from_row, from_name, from_balance, _ = find_account(from_acc)
+    to_row, to_name, to_balance, _ = find_account(to_acc)
+
+    if from_row is None or to_row is None:
+        print("One or both accounts not found.\n")
+        return
+
+    fee = max(MIN_FEE, amount * TRANSFER_FEE_PERCENT)
+    total_debit = amount + fee
+
+    if total_debit > from_balance:
+        print(f"Insufficient funds. Available: £{from_balance:.2f}")
+        print(f"Required (amount + fee): £{total_debit:.2f}\n")
+        return
+
+    # Confirmation
+    print("\n" + "-"*50)
+    print("TRANSFER SUMMARY")
+    print("-"*50)
+    print(f"From     : {from_name} ({format_account_number(from_acc)})")
+    print(f"To       : {to_name} ({format_account_number(to_acc)})")
+    print(f"Amount   : £{amount:.2f}")
+    print(f"Fee (1%, min £{MIN_FEE:.2f}) : £{fee:.2f}")
+    print(f"Total debit from source : £{total_debit:.2f}")
+    print(f"Source balance after: £{from_balance - total_debit:.2f}")
+    print(f"Destination balance after: £{to_balance + amount:.2f}")
+    print("-"*50)
+
+    confirm = read_input("Confirm transfer? (y/n)").strip().lower()
+    if confirm not in ('y', 'yes'):
+        print("Transfer cancelled.\n")
+        return
+
+    # Execute transfer
+    new_from = from_balance - total_debit
+    new_to = to_balance + amount
+
+    update_balance(from_row, new_from)
+    update_balance(to_row, new_to)
+
+    log_transaction(from_acc, f"Transfer Out to {format_account_number(to_acc)} (fee £{fee:.2f})", -total_debit, new_from)
+    log_transaction(to_acc, f"Transfer In from {format_account_number(from_acc)}", amount, new_to)
+
+    print("\n" + "="*50)
+    print("TRANSFER COMPLETED SUCCESSFULLY")
+    print("="*50)
+    print(f"Amount transferred: £{amount:.2f}")
+    print(f"Fee charged      : £{fee:.2f}")
+    print(f"Source account   : {format_account_number(from_acc)} → £{new_from:.2f}")
+    print(f"Destination account: {format_account_number(to_acc)} → £{new_to:.2f}")
+    print("="*50 + "\n")
 
 
 def generate_account_number(max_attempts=1000):
@@ -314,25 +422,11 @@ def show_menu():
     print("3. Withdraw Funds")
     print("4. Check Balance")
     print("5. View Transaction History")
-    print("6. Print Database (Admin)")
-    print("7. Exit")
+    print("6. Transfer Money")
+    print("7. Print Database (Admin)")
+    print("8. Exit")
     print("="*40)
     print("> ", end="", flush=True)
-
-
-def get_valid_account_number():
-    while True:
-        acc = read_input("Enter 10-digit account number\n(or type 'q' / 'quit' / 'exit' to cancel)")
-        acc_clean = acc.strip().lower()
-
-        if acc_clean in ("q", "quit", "exit"):
-            print("Operation cancelled.\n")
-            return None
-
-        if validate_account_number(acc):
-            return acc
-
-        print("Invalid account number, please try again or press 'q' to cancel/quit!\n")
 
 
 def main():
@@ -357,7 +451,7 @@ def main():
             elif choice in ("2", "3", "4", "5"):
                 acc = get_valid_account_number()
                 if acc is None:
-                    continue  # user cancelled
+                    continue
 
                 if choice == "2":
                     amt = parse_amount(read_input("Enter deposit amount (£)"))
@@ -371,6 +465,9 @@ def main():
                     view_transaction_history(acc)
 
             elif choice == "6":
+                transfer_money()
+
+            elif choice == "7":
                 if not ADMIN_PASSWORD:
                     print("Admin features are disabled (ADMIN_PASSWORD environment variable is not set).\n")
                 else:
@@ -380,7 +477,7 @@ def main():
                     else:
                         print("Access denied.\n")
 
-            elif choice == "7":
+            elif choice == "8":
                 print("\nThank you for using the Dreams Banking Terminal. Goodbye!\n")
                 break
 
