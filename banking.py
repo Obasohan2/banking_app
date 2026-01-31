@@ -2,6 +2,7 @@ import sys
 import os
 import re
 import random
+import time
 import warnings
 import getpass
 from datetime import datetime
@@ -16,13 +17,14 @@ from prettytable import PrettyTable
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 if not ADMIN_PASSWORD:
-    print("Admin features (Print Database, Delete Account) will be disabled unless ADMIN_PASSWORD env var is set.\n")
+    print("Admin features disabled (set ADMIN_PASSWORD to enable).\n")
 
 SCOPE = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/drive"
 ]
+
 
 # ======================================================
 #   GOOGLE SHEETS SETUP
@@ -137,7 +139,7 @@ def log_transaction(account, t_type, amount, balance_after):
 
 def get_valid_account_number(prompt="Enter 10-digit account number"):
     while True:
-        acc = read_input(prompt + "\n(or type 'q' / 'quit' / 'exit' to cancel)")
+        acc = read_input(f"{prompt} (q to cancel)")
         acc_clean = acc.strip().lower()
 
         if acc_clean in ("q", "quit", "exit"):
@@ -147,7 +149,7 @@ def get_valid_account_number(prompt="Enter 10-digit account number"):
         if validate_account_number(acc):
             return acc
 
-        print("Invalid account number, please try again or press 'q' to cancel/quit!\n")
+        print("Invalid account number. Try again or press q.\n")
 
 
 # ======================================================
@@ -173,7 +175,9 @@ def find_account(account_number):
             acc_idx = acc_idx or i
         if "balance" in h or "bal" in h:
             bal_idx = bal_idx or i
-        if any(k in h for k in ["updated", "timestamp", "time", "last", "update", "stamps"]):
+        if any(k in h for k in [
+            "updated", "timestamp", "time", "last", "update", "stamps"
+        ]):
             upd_idx = upd_idx or i
 
     if acc_idx is None or bal_idx is None:
@@ -181,10 +185,15 @@ def find_account(account_number):
         return None, None, None, None
 
     for row_idx, row in enumerate(values[1:], start=2):
-        if len(row) > acc_idx and str(row[acc_idx]).strip() == str(account_number):
-            name = row[name_idx] if name_idx is not None and len(row) > name_idx else "Unknown"
+        if (len(row) > acc_idx and
+                str(row[acc_idx]).strip() == str(account_number)):
+            name = (row[name_idx]
+                    if name_idx is not None and len(row) > name_idx
+                    else "Unknown")
             balance = parse_balance(row[bal_idx] if len(row) > bal_idx else "")
-            last_upd = row[upd_idx] if upd_idx is not None and len(row) > upd_idx else "—"
+            last_upd = (row[upd_idx]
+                        if upd_idx is not None and len(row) > upd_idx
+                        else "—")
             return row_idx, name, balance, last_upd
     return None, None, None, None
 
@@ -207,9 +216,7 @@ def delete_account():
         print("Access denied.\n")
         return
 
-    print("\n" + "="*50)
-    print("DELETE ACCOUNT (ADMIN ONLY)")
-    print("="*50)
+    print("\n=== DELETE ACCOUNT (ADMIN) ===")
 
     acc = get_valid_account_number("Enter account number to delete")
     if acc is None:
@@ -226,7 +233,7 @@ def delete_account():
         return
 
     print("\n" + "-"*60)
-    print("ACCOUNT DELETION CONFIRMATION")
+    print("CONFIRM ACCOUNT DELETION")
     print("-"*60)
     print(f"Account holder : {name}")
     print(f"Account number : {format_account_number(acc)}")
@@ -234,7 +241,7 @@ def delete_account():
     print(f"Last updated   : {last_upd}")
     print("-"*60)
 
-    confirm = read_input("Type DELETE (all caps) to PERMANENTLY delete this account").strip()
+    confirm = read_input("Type DELETE to confirm").strip()
     if confirm != "DELETE":
         print("Deletion cancelled.\n")
         return
@@ -248,17 +255,23 @@ def delete_account():
     print("\n" + "="*60)
     print("ACCOUNT DELETED SUCCESSFULLY")
     print("="*60)
-    print(f"Account {format_account_number(acc)} ({name}) has been permanently removed.")
+    print(f"{format_account_number(acc)} ({name}) removed.\n")
     print("This action cannot be undone.\n")
 
 
 def generate_account_number(max_attempts=1000):
-    used = {str(r[1]).strip() for r in accounts_sheet.get_all_values()[1:] if len(r) > 1}
+    used = {
+        str(r[1]).strip()
+        for r in accounts_sheet.get_all_values()[1:]
+        if len(r) > 1
+    }
     for _ in range(max_attempts):
         num = str(random.randint(1000000000, 9999999999))
         if num not in used:
             return num
-    raise RuntimeError("Could not generate a unique account number after many attempts.")
+    raise RuntimeError(
+        "Could not generate a unique account number after many attempts."
+    )
 
 
 def create_account(name, initial_balance):
@@ -337,7 +350,10 @@ def display_balance(account):
 
 def view_transaction_history(account):
     rows = transactions_sheet.get_all_values()[1:]
-    matching = [r for r in rows if len(r) > 0 and str(r[0]).strip() == str(account)]
+    matching = [
+        r for r in rows
+        if len(r) > 0 and str(r[0]).strip() == str(account)
+    ]
 
     print(f"\nTransaction history for {format_account_number(account)}\n")
 
@@ -352,6 +368,47 @@ def view_transaction_history(account):
 
     print(table)
     print()
+
+
+def transfer_money():
+    source_acc = get_valid_account_number("Enter source account number")
+    if source_acc is None:
+        return
+    dest_acc = get_valid_account_number("Enter destination account number")
+    if dest_acc is None:
+        return
+    amt = parse_amount(read_input("Enter transfer amount (£)"))
+    # Find source
+    source_row, source_name, source_balance, source_upd = (
+        find_account(source_acc)
+    )
+    if source_row is None:
+        print("Source account not found.\n")
+        return
+    if amt > source_balance:
+        print("Insufficient funds.\n")
+        return
+    # Find dest
+    dest_row, dest_name, dest_balance, dest_upd = find_account(dest_acc)
+    if dest_row is None:
+        print("Destination account not found.\n")
+        return
+    # Update source balance
+    new_source_balance = source_balance - amt
+    update_balance(source_row, new_source_balance)
+    log_transaction(source_acc, "Transfer Out", amt, new_source_balance)
+    # Update dest balance
+    new_dest_balance = dest_balance + amt
+    update_balance(dest_row, new_dest_balance)
+    log_transaction(dest_acc, "Transfer In", amt, new_dest_balance)
+    now = get_current_timestamp()
+    print(
+        f"Transferred £{amt:.2f} from {format_account_number(source_acc)} "
+        f"to {format_account_number(dest_acc)}."
+    )
+    print(f"Source balance: £{new_source_balance:.2f}")
+    print(f"Dest balance  : £{new_dest_balance:.2f}")
+    print(f"Updated       : {now}\n")
 
 
 def print_all_accounts():
@@ -393,8 +450,7 @@ def show_menu():
     print("5. View Transaction History")
     print("6. Transfer Money")
     print("7. Print Database (Admin)")
-    if ADMIN_PASSWORD:
-        print("8. Delete Account (Admin)")
+    print("8. Delete Account (Admin)")
     print("9. Exit")
     print("="*40)
     print("> ", end="", flush=True)
@@ -406,7 +462,10 @@ def main():
         choice = sys.stdin.readline().strip().lower()
 
         if choice in ("q", "quit", "exit"):
-            print("\nThank you for using the Dreams Banking Terminal. Goodbye!\n")
+            print(
+                "\nThank you for using the Dreams Banking Terminal. "
+                "Goodbye!\n"
+            )
             break
 
         try:
@@ -428,7 +487,8 @@ def main():
                     amt = parse_amount(read_input("Enter deposit amount (£)"))
                     deposit(acc, amt)
                 elif choice == "3":
-                    amt = parse_amount(read_input("Enter withdrawal amount (£)"))
+                    amt_str = read_input("Enter withdrawal amount (£)")
+                    amt = parse_amount(amt_str)
                     withdraw(acc, amt)
                 elif choice == "4":
                     display_balance(acc)
@@ -440,7 +500,7 @@ def main():
 
             elif choice == "7":
                 if not ADMIN_PASSWORD:
-                    print("Admin features are disabled (ADMIN_PASSWORD environment variable is not set).\n")
+                    print("Admin disabled (ADMIN_PASSWORD not set).\n")
                 else:
                     pwd = prompt_password("Enter admin password:")
                     if pwd == ADMIN_PASSWORD:
@@ -452,11 +512,16 @@ def main():
                 delete_account()
 
             elif choice == "9":
-                print("\nThank you for using the Dreams Banking Terminal. Goodbye!\n")
+                print(
+                    "\nThank you for using the Dreams Banking Terminal. "
+                    "Goodbye!\n"
+                )
                 break
 
             else:
-                print("Invalid choice, please try again or press 'q' to quit!\n")
+                print(
+                    "Invalid choice, please try again or press 'q' to quit!\n"
+                )
 
         except ValueError as e:
             print(f"Error: {e}\n")
