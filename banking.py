@@ -16,18 +16,13 @@ from prettytable import PrettyTable
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 if not ADMIN_PASSWORD:
-    print("Admin features (Print Database) will be disabled unless ADMIN_PASSWORD env var is set.\n")
+    print("Admin features (Print Database, Delete Account) will be disabled unless ADMIN_PASSWORD env var is set.\n")
 
 SCOPE = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/drive"
 ]
-
-# Transfer settings
-MIN_TRANSFER_AMOUNT = 10.00
-TRANSFER_FEE_PERCENT = 0.01   # 1%
-MIN_FEE = 1.00
 
 # ======================================================
 #   GOOGLE SHEETS SETUP
@@ -202,85 +197,59 @@ def update_balance(row, new_balance):
     }])
 
 
-def transfer_money():
-    print("\n" + "-"*50)
-    print("           MONEY TRANSFER")
-    print("-"*50)
-
-    from_acc = get_valid_account_number("Source account number")
-    if from_acc is None:
+def delete_account():
+    if not ADMIN_PASSWORD:
+        print("Admin features are disabled.\n")
         return
 
-    to_acc = get_valid_account_number("Destination account number")
-    if to_acc is None:
+    pwd = prompt_password("Enter admin password:")
+    if pwd != ADMIN_PASSWORD:
+        print("Access denied.\n")
         return
-
-    if from_acc == to_acc:
-        print("Cannot transfer money to the same account.\n")
-        return
-
-    try:
-        amount_str = read_input("Amount to transfer (£)")
-        amount = parse_amount(amount_str)
-    except ValueError as e:
-        print(f"Error: {e}\n")
-        return
-
-    if amount < MIN_TRANSFER_AMOUNT:
-        print(f"Minimum transfer amount is £{MIN_TRANSFER_AMOUNT:.2f}.\n")
-        return
-
-    from_row, from_name, from_balance, _ = find_account(from_acc)
-    to_row, to_name, to_balance, _ = find_account(to_acc)
-
-    if from_row is None or to_row is None:
-        print("One or both accounts not found.\n")
-        return
-
-    fee = max(MIN_FEE, amount * TRANSFER_FEE_PERCENT)
-    total_debit = amount + fee
-
-    if total_debit > from_balance:
-        print(f"Insufficient funds. Available: £{from_balance:.2f}")
-        print(f"Required (amount + fee): £{total_debit:.2f}\n")
-        return
-
-    # Confirmation
-    print("\n" + "-"*50)
-    print("TRANSFER SUMMARY")
-    print("-"*50)
-    print(f"From     : {from_name} ({format_account_number(from_acc)})")
-    print(f"To       : {to_name} ({format_account_number(to_acc)})")
-    print(f"Amount   : £{amount:.2f}")
-    print(f"Fee (1%, min £{MIN_FEE:.2f}) : £{fee:.2f}")
-    print(f"Total debit from source : £{total_debit:.2f}")
-    print(f"Source balance after: £{from_balance - total_debit:.2f}")
-    print(f"Destination balance after: £{to_balance + amount:.2f}")
-    print("-"*50)
-
-    confirm = read_input("Confirm transfer? (y/n)").strip().lower()
-    if confirm not in ('y', 'yes'):
-        print("Transfer cancelled.\n")
-        return
-
-    # Execute transfer
-    new_from = from_balance - total_debit
-    new_to = to_balance + amount
-
-    update_balance(from_row, new_from)
-    update_balance(to_row, new_to)
-
-    log_transaction(from_acc, f"Transfer Out to {format_account_number(to_acc)} (fee £{fee:.2f})", -total_debit, new_from)
-    log_transaction(to_acc, f"Transfer In from {format_account_number(from_acc)}", amount, new_to)
 
     print("\n" + "="*50)
-    print("TRANSFER COMPLETED SUCCESSFULLY")
+    print("DELETE ACCOUNT (ADMIN ONLY)")
     print("="*50)
-    print(f"Amount transferred: £{amount:.2f}")
-    print(f"Fee charged      : £{fee:.2f}")
-    print(f"Source account   : {format_account_number(from_acc)} → £{new_from:.2f}")
-    print(f"Destination account: {format_account_number(to_acc)} → £{new_to:.2f}")
-    print("="*50 + "\n")
+
+    acc = get_valid_account_number("Enter account number to delete")
+    if acc is None:
+        return
+
+    row, name, balance, last_upd = find_account(acc)
+    if row is None:
+        print("Account not found.\n")
+        return
+
+    if balance != 0:
+        print(f"Cannot delete account with non-zero balance (£{balance:.2f}).")
+        print("Please withdraw or transfer remaining funds first.\n")
+        return
+
+    print("\n" + "-"*60)
+    print("ACCOUNT DELETION CONFIRMATION")
+    print("-"*60)
+    print(f"Account holder : {name}")
+    print(f"Account number : {format_account_number(acc)}")
+    print(f"Current balance: £{balance:.2f}")
+    print(f"Last updated   : {last_upd}")
+    print("-"*60)
+
+    confirm = read_input("Type DELETE (all caps) to PERMANENTLY delete this account").strip()
+    if confirm != "DELETE":
+        print("Deletion cancelled.\n")
+        return
+
+    # Delete the row
+    accounts_sheet.delete_rows(row)
+
+    # Log deletion
+    log_transaction(acc, "Account Deleted", 0.00, 0.00)
+
+    print("\n" + "="*60)
+    print("ACCOUNT DELETED SUCCESSFULLY")
+    print("="*60)
+    print(f"Account {format_account_number(acc)} ({name}) has been permanently removed.")
+    print("This action cannot be undone.\n")
 
 
 def generate_account_number(max_attempts=1000):
@@ -424,7 +393,9 @@ def show_menu():
     print("5. View Transaction History")
     print("6. Transfer Money")
     print("7. Print Database (Admin)")
-    print("8. Exit")
+    if ADMIN_PASSWORD:
+        print("8. Delete Account (Admin)")
+    print("9. Exit")
     print("="*40)
     print("> ", end="", flush=True)
 
@@ -477,7 +448,10 @@ def main():
                     else:
                         print("Access denied.\n")
 
-            elif choice == "8":
+            elif choice == "8" and ADMIN_PASSWORD:
+                delete_account()
+
+            elif choice == "9":
                 print("\nThank you for using the Dreams Banking Terminal. Goodbye!\n")
                 break
 
