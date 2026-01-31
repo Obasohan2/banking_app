@@ -16,14 +16,14 @@ app.use(express.static("static"));
 function writeCreds() {
     if (process.env.CREDS) {
         fs.writeFileSync("creds.json", process.env.CREDS);
-        console.log("✅ creds.json written from CREDS");
+        console.log("creds.json written from CREDS");
     } else {
-        console.log("⚠️ CREDS env var not set");
+        console.log("CREDS env var not set");
     }
 }
 
 io.on("connection", (socket) => {
-    console.log("✅ Socket connected");
+    console.log("Socket connected");
 
     writeCreds();
 
@@ -42,7 +42,7 @@ io.on("connection", (socket) => {
     });
 
     pyshell.on("error", (err) => {
-        socket.emit("console_output", `❌ Python error: ${err}`);
+        socket.emit("console_output", `Python error: ${err}`);
     });
 
     // Browser input → Python stdin
@@ -51,11 +51,11 @@ io.on("connection", (socket) => {
     });
 
     socket.on("disconnect", () => {
-        console.log("🔌 Socket disconnected");
+        console.log("Socket disconnected");
         pyshell.kill();
     });
 });
 
 server.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
