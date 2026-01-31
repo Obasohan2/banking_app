@@ -289,7 +289,8 @@ def delete_account():
 
 
 def generate_account_number(max_attempts=1000):
-    used = {str(r[1]).strip() for r in accounts_sheet.get_all_values()[1:] if len(r) > 1}
+    all_accounts = accounts_sheet.get_all_values()[1:]
+    used = {str(r[1]).strip() for r in all_accounts if len(r) > 1}
     for _ in range(max_attempts):
         num = str(random.randint(1000000000, 9999999999))
         if num not in used:
@@ -583,3 +584,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
